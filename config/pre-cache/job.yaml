@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pre-cache
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 14400
+  template:
+    metadata:
+      name: pre-cache
+    spec:
+      containers:
+      - name: pre-cache-container
+        image: quay.io/vgrinber/pre-cache:0.0.3
+        env:
+        - name: pull_timeout
+          value: "14400"
+        - name: config_volume_path
+          value: /etc/config
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - /opt/precache/release && /opt/precache/olm && /opt/precache/pull
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        volumeMounts:
+        - name: cache
+          mountPath: /cache
+        - name: varlibcontainers
+          mountPath: /var/lib/containers
+        - name: pull
+          mountPath: /var/lib/kubelet/config.json
+        - name: config-volume
+          mountPath: /etc/config 
+        - name: registries
+          mountPath: /etc/containers/registries.conf
+        - name: policy
+          mountPath: /etc/containers/policy.json
+        - name: etcdocker
+          mountPath: /etc/docker
+        - name: usr
+          mountPath: /usr
+         
+      serviceAccount: pre-cache-agent
+      serviceAccountName: pre-cache-agent
+
+      volumes:
+      - name: cache
+        emptyDir: {}
+      - name: config-volume
+        configMap:
+          name: pre-cache-spec
+      # Host path volumes
+      - name: varlibcontainers
+        hostPath:
+          path: /var/lib/containers
+          type: Directory
+      - name: registries
+        hostPath:
+          path: /etc/containers/registries.conf
+          type: File
+      - name: policy
+        hostPath:
+          path: /etc/containers/policy.json
+          type: File
+      - name: etcdocker
+        hostPath:
+          path: /etc/docker
+          type: Directory
+      - name: usr
+        hostPath:
+          path: /usr
+          type: Directory
+      - name: pull
+        hostPath:
+          path: /var/lib/kubelet/config.json
+          type: File
+      restartPolicy: Never
