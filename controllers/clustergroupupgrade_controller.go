@@ -99,7 +99,11 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 	} else if readyCondition.Status == metav1.ConditionFalse {
 		if readyCondition.Reason == "UpgradeNotStarted" || readyCondition.Reason == "UpgradeCannotStart" {
 			// Before starting the upgrade check that all the managed policies exist.
-			allManagedPoliciesExist, managedPoliciesMissing, managedPoliciesPresent := r.doManagedPoliciesExist(ctx, clusterGroupUpgrade)
+			allManagedPoliciesExist, managedPoliciesMissing, managedPoliciesPresent, err := r.doManagedPoliciesExist(ctx, clusterGroupUpgrade)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
 			if allManagedPoliciesExist == true {
 				// Create the needed resources for starting the upgrade.
 				err = r.reconcileResources(ctx, clusterGroupUpgrade, managedPoliciesPresent)
@@ -474,30 +478,82 @@ func (r *ClusterGroupUpgradeReconciler) getPolicyByName(ctx context.Context, pol
    returns: true/false                   if all the policies exist or not
             []string                     with the missing managed policy names
 			[]*unstructured.Unstructured a list of the managedPolicies present on the system
+			error
 */
-func (r *ClusterGroupUpgradeReconciler) doManagedPoliciesExist(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (bool, []string, []*unstructured.Unstructured) {
+func (r *ClusterGroupUpgradeReconciler) doManagedPoliciesExist(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (bool, []string, []*unstructured.Unstructured, error) {
+	// Make a list with all the child policies in the cluster's namespaces.
+	var childPoliciesList []string
+	for _, clusterName := range clusterGroupUpgrade.Spec.Clusters {
+		listOpts := []client.ListOption{
+			client.InNamespace(clusterName),
+		}
+		policiesList := &unstructured.UnstructuredList{}
+		policiesList.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   "policy.open-cluster-management.io",
+			Kind:    "PolicyList",
+			Version: "v1",
+		})
+		if err := r.List(ctx, policiesList, listOpts...); err != nil {
+			return false, nil, nil, err
+		}
+
+		for _, policy := range policiesList.Items {
+			labels := policy.GetLabels()
+			if labels == nil {
+				continue
+			}
+			// If we can find the child policy specific label, add the child policy name to the list.
+			if _, ok := labels[utils.ChildPolicyLabel]; ok {
+				childPoliciesList = append(childPoliciesList, policy.GetName())
+			}
+		}
+	}
+
+	r.Log.Info("[doManagedPoliciesExist]", "childPoliciesList", childPoliciesList)
+
+	// Go through all the child policies and split the namespace from the policy name.
+	// A child policy name has the name format parent_policy_namespace.parent_policy_name
+	// The policy map we are creating will be of format {"policy_name": "policy_namespace"}
+	policyMap := make(map[string]string)
+	for _, childPolicyName := range childPoliciesList {
+		policyNameArr := strings.SplitN(childPolicyName, ".", 2)
+		policyMap[policyNameArr[1]] = policyNameArr[0]
+	}
+	r.Log.Info("[doManagedPoliciesExist]", "policyMap", policyMap)
+
+	// Go through the managedPolicies in the CR, make sure they exist and save them to the upgrade's status together with
+	// their namespace.
 	var managedPoliciesMissing []string
 	var managedPoliciesPresent []*unstructured.Unstructured
+	clusterGroupUpgrade.Status.ManagedPoliciesNs = make(map[string]string)
+	for _, managedPolicyName := range clusterGroupUpgrade.Spec.ManagedPolicies {
+		if managedPolicyNamespace, ok := policyMap[managedPolicyName]; ok {
+			// Make sure the parent policy exists and nothing happened between querying the child policies above and now.
+			foundPolicy, err := r.getPolicyByName(ctx, managedPolicyName, managedPolicyNamespace)
 
-	// Go through the managedPolicies in the CR and make sure they exist.
-	for _, managedPolicy := range clusterGroupUpgrade.Spec.ManagedPolicies {
-		foundPolicy, err := r.getPolicyByName(ctx, managedPolicy, clusterGroupUpgrade.Namespace)
-
-		if err != nil {
-			if errors.IsNotFound(err) {
-				managedPoliciesMissing = append(managedPoliciesMissing, managedPolicy)
+			if err != nil {
+				// If the parent policy was not found, add its name to the list of missing policies.
+				if errors.IsNotFound(err) {
+					managedPoliciesMissing = append(managedPoliciesMissing, managedPolicyName)
+				} else {
+					// If another error happened, return it.
+					return false, nil, nil, err
+				}
 			}
-		} else {
+			// Add the policy to the list of present policies and update the status with the policy's namespace.
 			managedPoliciesPresent = append(managedPoliciesPresent, foundPolicy)
+			clusterGroupUpgrade.Status.ManagedPoliciesNs[managedPolicyName] = managedPolicyNamespace
+		} else {
+			managedPoliciesMissing = append(managedPoliciesMissing, managedPolicyName)
 		}
 	}
 
 	// If there are missing managed policies, return.
 	if len(managedPoliciesMissing) != 0 {
-		return false, managedPoliciesMissing, managedPoliciesPresent
+		return false, managedPoliciesMissing, managedPoliciesPresent, nil
 	}
 
-	return true, nil, managedPoliciesPresent
+	return true, nil, managedPoliciesPresent, nil
 }
 
 func (r *ClusterGroupUpgradeReconciler) copyManagedInformPolicy(
@@ -660,7 +716,8 @@ func (r *ClusterGroupUpgradeReconciler) getNextNonCompliantPolicyForCluster(
 	for {
 		// Get the name of the managed policy matching the current index.
 		currentManagedPolicyName := clusterGroupUpgrade.Spec.ManagedPolicies[currentPolicyIndex]
-		currentManagedPolicy, err := r.getPolicyByName(ctx, currentManagedPolicyName, clusterGroupUpgrade.Namespace)
+		currentManagedPolicyNamespace := clusterGroupUpgrade.Status.ManagedPoliciesNs[currentManagedPolicyName]
+		currentManagedPolicy, err := r.getPolicyByName(ctx, currentManagedPolicyName, currentManagedPolicyNamespace)
 		if err != nil {
 			return utils.NoPolicyIndex, err
 		}
@@ -868,7 +925,7 @@ func (r *ClusterGroupUpgradeReconciler) getPolicies(ctx context.Context, cluster
 func (r *ClusterGroupUpgradeReconciler) getManagedPolicies(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) ([]unstructured.Unstructured, error) {
 	var policies []unstructured.Unstructured
 	for _, policyName := range clusterGroupUpgrade.Spec.ManagedPolicies {
-		policy, err := r.getPolicyByName(ctx, policyName, clusterGroupUpgrade.Namespace)
+		policy, err := r.getPolicyByName(ctx, policyName, clusterGroupUpgrade.Status.ManagedPoliciesNs[policyName])
 		if err != nil {
 			return nil, err
 		}

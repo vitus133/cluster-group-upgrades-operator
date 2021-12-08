@@ -106,6 +106,7 @@ type ClusterGroupUpgradeStatus struct {
 	Policies          []string           `json:"policies,omitempty"`
 	Conditions        []metav1.Condition `json:"conditions,omitempty"`
 	RemediationPlan   [][]string         `json:"remediationPlan,omitempty"`
+	ManagedPoliciesNs map[string]string  `json:"managedPoliciesNs,omitempty"`
 	Status            UpgradeStatus      `json:"status,omitempty"`
 }
 
