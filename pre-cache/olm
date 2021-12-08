@@ -1,0 +1,51 @@
+#!/bin/bash
+
+cwd="${cwd:-/opt/precache}"
+. $cwd/common
+
+process_index_db(){
+    db_path=$1
+    operators_spec_file=$2
+
+    log_debug "Index image is sqlite-based. This format is deprecated."
+    /usr/libexec/platform-python /opt/precache/olm_db.py "${db_path}" "${operators_spec_file}" "${pull_spec_file}"
+    return $?
+}
+
+process_index_filesystem(){
+    index_path=$1
+    log_debug "Index image is file system based. This format is not yet implemented."
+    return 1
+}
+
+olm_main(){
+    declare -i ret_val=0
+    # There could be several indexes, hence the loop
+    for index in $(sort -u $config_volume_path/operators.indexes) ; do
+        image_id=$(pull_index $index $pull_secret_path)
+        rv=$? && ret_val=ret_val+$rv
+        [[ $rv -eq 0 ]] || continue
+        log_debug "$index image ID is $image_id"
+        image_mount=$(mount_index $image_id)
+        rv=$? && ret_val=ret_val+$rv
+        [[ $rv -eq 0 ]] || continue
+        log_debug "Image mount: $image_mount"
+        operators_spec_file="$config_volume_path/operators.packagesAndChannels"
+        if [[ -f "$image_mount/database/index.db" ]]; then
+            process_index_db $image_mount/database/index.db $operators_spec_file
+        else
+            process_index_filesystem $image_mount $operators_spec_file
+        fi
+        ret_val=ret_val+$?
+        unmount_index $image_id
+    done
+    if [[ $ret_val -ne 0 ]]; then
+        log_debug "Some of the OLM index extractions failed."
+    fi
+    return $ret_val
+}
+
+if [[ "${BASH_SOURCE[0]}" = "${0}" ]]; then
+  olm_main
+  exit $?
+fi
