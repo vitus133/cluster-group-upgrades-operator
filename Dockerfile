@@ -33,5 +33,6 @@ COPY pre-cache/release \
      pre-cache/olm \
      pre-cache/olm_db.py \
      pre-cache/pull \
+     pre-cache/precache.sh \
      /opt/precache
 ENV PATH="/opt/precache:${PATH}"

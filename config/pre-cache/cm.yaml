@@ -8,7 +8,7 @@ metadata:
 data:
   platform.image: quay.io/openshift-release-dev/ocp-release:4.9.4-x86_64
   operators.indexes: |
-    dhcp16-231-198.ptp.lab.eng.bos.redhat.com:5000/custom-redhat-operators:1.0.0
+    registry.example.com:5000/custom-redhat-operators:1.0.0
   operators.packagesAndChannels: |
     local-storage-operator: stable
     performance-addon-operator: 4.9

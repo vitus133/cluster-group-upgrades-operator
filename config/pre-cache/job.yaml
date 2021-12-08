@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
       - name: pre-cache-container
-        image: quay.io/vgrinber/pre-cache:0.0.3
+        image: quay.io/openshift-kni/cluster-group-upgrades-operator-precache:0.0.3
         env:
         - name: pull_timeout
           value: "14400"
@@ -21,7 +21,7 @@ spec:
         - /bin/bash
         - -c
         args:
-        - /opt/precache/release && /opt/precache/olm && /opt/precache/pull
+        - /opt/precache/precache.sh
         securityContext:
           privileged: true
           runAsUser: 0
@@ -32,16 +32,22 @@ spec:
           mountPath: /var/lib/containers
         - name: pull
           mountPath: /var/lib/kubelet/config.json
+          readOnly: true
         - name: config-volume
-          mountPath: /etc/config 
+          mountPath: /etc/config
+          readOnly: true
         - name: registries
           mountPath: /etc/containers/registries.conf
+          readOnly: true
         - name: policy
           mountPath: /etc/containers/policy.json
+          readOnly: true
         - name: etcdocker
           mountPath: /etc/docker
+          readOnly: true
         - name: usr
           mountPath: /usr
+          readOnly: true
          
       serviceAccount: pre-cache-agent
       serviceAccountName: pre-cache-agent
