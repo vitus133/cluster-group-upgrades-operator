@@ -28,7 +28,6 @@ export_index(){
     # opm doesn't accept cacert as an arg
     cp $capath /etc/pki/ca-trust/source/anchors/ 
     update-ca-trust
-    # [ ! -d "$index_download_path" ] && mkdir -p "$index_download_path"
     $image_mount/bin/opm index export -i $index -p $packages -c podman -f $index_download_path
 }
 
