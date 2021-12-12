@@ -300,4 +300,4 @@ complete-deployment: non-kind-deps-update install-acm-crds deploy-policy-propaga
 complete-kuttl-test: complete-deployment kuttl-test
 
 pre-cache-unit-test: ## Run pre-cache scripts unit tests
-	cwd=pre-cache ./pre-cache/src/test.sh
+	cwd=pre-cache ./pre-cache/test.sh

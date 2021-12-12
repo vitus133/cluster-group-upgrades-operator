@@ -3,25 +3,51 @@
 cwd="${cwd:-/opt/precache}"
 . $cwd/common
 
-process_index_db(){
-    db_path=$1
-    operators_spec_file=$2
+podman_pull_path="${podman_pull_path:-/run/containers/0}"
+index_download_path="${index_download_path:-/cache/downloaded}"
 
-    log_debug "Index image is sqlite-based. This format is deprecated."
-    /usr/libexec/platform-python /opt/precache/olm_db.py "${db_path}" "${operators_spec_file}" "${pull_spec_file}"
+
+extract_pull_spec(){
+    index_download_path=$1
+    operators_spec_file=$2
+    pull_spec_file=$3
+    /usr/libexec/platform-python /opt/precache/parse_index.py "${index_download_path}" "${operators_spec_file}" "${pull_spec_file}"
     return $?
 }
 
-process_index_filesystem(){
-    index_path=$1
-    log_debug "Index image is file system based. This format is not yet implemented."
-    return 1
+export_index(){
+    index=$1
+    pull_secret_path=$2
+    packages=$3
+    image_mount=$4
+    
+    # copy pull secret to the default runtime dir - opm doesn't accept authfile as an arg
+    [ ! -d "$podman_pull_path" ] && mkdir -p "$podman_pull_path"
+    cp $pull_secret_path "$podman_pull_path/auth.json"
+    capath="/etc/docker/certs.d/${index%/*}/ca.crt"
+    # opm doesn't accept cacert as an arg
+    cp $capath /etc/pki/ca-trust/source/anchors/ 
+    update-ca-trust
+    # [ ! -d "$index_download_path" ] && mkdir -p "$index_download_path"
+    $image_mount/bin/opm index export -i $index -p $packages -c podman -f $index_download_path
+}
+
+extract_packages(){
+    local packages
+    cat $config_volume_path/operators.packagesAndChannels |tr -d " " > /tmp/packagesAndChannels
+    for item in $(sort -u '/tmp/packagesAndChannels'); do
+        pkg=$(echo $item |cut -d ':' -f 1)
+        packages="$packages$pkg,"
+    done
+    echo ${packages%,}
+    return 0
 }
 
 olm_main(){
     declare -i ret_val=0
     # There could be several indexes, hence the loop
     for index in $(sort -u $config_volume_path/operators.indexes) ; do
+
         image_id=$(pull_index $index $pull_secret_path)
         rv=$? && ret_val=ret_val+$rv
         [[ $rv -eq 0 ]] || continue
@@ -30,13 +56,11 @@ olm_main(){
         rv=$? && ret_val=ret_val+$rv
         [[ $rv -eq 0 ]] || continue
         log_debug "Image mount: $image_mount"
+        
+        packages=$(extract_packages)
+        export_index $index $pull_secret_path $packages $image_mount
         operators_spec_file="$config_volume_path/operators.packagesAndChannels"
-        if [[ -f "$image_mount/database/index.db" ]]; then
-            process_index_db $image_mount/database/index.db $operators_spec_file
-        else
-            process_index_filesystem $image_mount $operators_spec_file
-        fi
-        ret_val=ret_val+$?
+        extract_pull_spec $index_download_path $operators_spec_file $pull_spec_file
         unmount_index $image_id
     done
     if [[ $ret_val -ne 0 ]]; then

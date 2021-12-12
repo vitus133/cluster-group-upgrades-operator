@@ -3,6 +3,7 @@
 container_tool="${container_tool:-podman}"
 pull_secret_path="${pull_secret_path:-/var/lib/kubelet/config.json}"
 pull_spec_file="${pull_spec_file:-/tmp/images.txt}"
+config_volume_path="${config_volume_path:-/etc/config}"
 
 log_debug() {
   echo "upgrades.pre-cache $(date -Iseconds) DEBUG $@"

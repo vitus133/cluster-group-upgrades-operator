@@ -31,7 +31,7 @@ RUN mkdir /opt/precache
 COPY pre-cache/release \
      pre-cache/common \
      pre-cache/olm \
-     pre-cache/olm_db.py \
+     pre-cache/parse_index.py \
      pre-cache/pull \
      pre-cache/precache.sh \
      /opt/precache
