@@ -12,5 +12,18 @@ const (
 	NoPolicyIndex        = -1
 	AllPoliciesValidated = -2
 
-	ChildPolicyLabel = "policy.open-cluster-management.io/root-policy"
+	ChildPolicyLabel       = "policy.open-cluster-management.io/root-policy"
+	KubeconfigSecretSuffix = "admin-kubeconfig"
+
+	// precaching job constants and states
+	PrecacheJobNamespace = "pre-cache"
+	PrecacheJobName      = "pre-cache"
+	JobNotFoundString    = "jobs.batch \"pre-cache\" not found"
+
+	PrecacheNotStarted         = "NotStarted"
+	PrecacheActive             = "Active"
+	PrecacheSucceeded          = "Succeeded"
+	PrecachePartiallyDone      = "PartiallyDone"
+	PrecacheUnrecoverableError = "UnrecoverableError"
+	PrecacheUnforeseenStatus   = "UnforeseenStatus"
 )
