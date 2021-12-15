@@ -186,7 +186,7 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 				clusterGroupUpgrade.Status.Status.CurrentBatchStartedAt = metav1.Time{}
 
 				// If we haven't reached the last batch yet, move to the next batch.
-				if clusterGroupUpgrade.Status.Status.CurrentBatch < len(clusterGroupUpgrade.Status.Policies) {
+				if clusterGroupUpgrade.Status.Status.CurrentBatch <= len(clusterGroupUpgrade.Status.RemediationPlan) {
 					clusterGroupUpgrade.Status.Status.CurrentBatch++
 				}
 			} else {
@@ -210,7 +210,7 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 						})
 					} else {
 						r.Log.Info("Batch upgrade timed out")
-						if clusterGroupUpgrade.Status.Status.CurrentBatch < len(clusterGroupUpgrade.Status.Policies) {
+						if clusterGroupUpgrade.Status.Status.CurrentBatch <= len(clusterGroupUpgrade.Status.RemediationPlan) {
 							clusterGroupUpgrade.Status.Status.CurrentBatch++
 						}
 					}
@@ -219,7 +219,7 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 
 			isUpgradeComplete := false
 			// If the batch is complete and it was the last batch in the remediationPlan, then the whole upgrade is complete.
-			if isBatchComplete == true && clusterGroupUpgrade.Status.Status.CurrentBatch == len(clusterGroupUpgrade.Status.Policies) {
+			if isBatchComplete == true && clusterGroupUpgrade.Status.Status.CurrentBatch == len(clusterGroupUpgrade.Status.RemediationPlan) {
 				isUpgradeComplete = true
 			}
 			if err != nil {
@@ -481,9 +481,14 @@ func (r *ClusterGroupUpgradeReconciler) getPolicyByName(ctx context.Context, pol
 			error
 */
 func (r *ClusterGroupUpgradeReconciler) doManagedPoliciesExist(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (bool, []string, []*unstructured.Unstructured, error) {
-	// Make a list with all the child policies in the cluster's namespaces.
 	var childPoliciesList []string
-	for _, clusterName := range clusterGroupUpgrade.Spec.Clusters {
+	allClustersForUpgrade, err := r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
+	if err != nil {
+		return false, nil, nil, err
+	}
+
+	// Make a list with all the child policies in the cluster's namespaces.
+	for _, clusterName := range allClustersForUpgrade {
 		listOpts := []client.ListOption{
 			client.InNamespace(clusterName),
 		}
@@ -754,7 +759,7 @@ func (r *ClusterGroupUpgradeReconciler) getNextNonCompliantPolicyForCluster(
 */
 func (r *ClusterGroupUpgradeReconciler) isUpgradeComplete(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (bool, error) {
 	// If we are not at the last batch, the upgrade clearly didn't complete.
-	if clusterGroupUpgrade.Status.Status.CurrentBatch < len(clusterGroupUpgrade.Status.Policies) {
+	if clusterGroupUpgrade.Status.Status.CurrentBatch < len(clusterGroupUpgrade.Status.CopiedPolicies) {
 		return false, nil
 	}
 
@@ -903,7 +908,7 @@ func (r *ClusterGroupUpgradeReconciler) getPlacementBindings(ctx context.Context
 	return placementBindingsList, nil
 }
 
-func (r *ClusterGroupUpgradeReconciler) getPolicies(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (*unstructured.UnstructuredList, error) {
+func (r *ClusterGroupUpgradeReconciler) getCopiedPolicies(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (*unstructured.UnstructuredList, error) {
 	var policyLabels = map[string]string{"openshift-cluster-group-upgrades/clusterGroupUpgrade": clusterGroupUpgrade.Name}
 	listOpts := []client.ListOption{
 		client.InNamespace(clusterGroupUpgrade.Namespace),
@@ -1277,15 +1282,15 @@ func (r *ClusterGroupUpgradeReconciler) updateStatus(ctx context.Context, cluste
 		}
 		clusterGroupUpgrade.Status.PlacementBindings = placementBindingsStatus
 
-		policies, err := r.getPolicies(ctx, clusterGroupUpgrade)
+		copiedPolicies, err := r.getCopiedPolicies(ctx, clusterGroupUpgrade)
 		if err != nil {
 			return err
 		}
 		policiesStatus := make([]string, 0)
-		for _, policy := range policies.Items {
+		for _, policy := range copiedPolicies.Items {
 			policiesStatus = append(policiesStatus, policy.GetName())
 		}
-		clusterGroupUpgrade.Status.Policies = policiesStatus
+		clusterGroupUpgrade.Status.CopiedPolicies = policiesStatus
 
 		err = r.Status().Update(ctx, clusterGroupUpgrade)
 

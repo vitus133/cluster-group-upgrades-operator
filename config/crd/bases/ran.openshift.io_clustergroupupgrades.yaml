@@ -162,6 +162,10 @@ spec:
                   - type
                   type: object
                 type: array
+              copiedPolicies:
+                items:
+                  type: string
+                type: array
               managedPoliciesNs:
                 additionalProperties:
                   type: string
@@ -174,10 +178,6 @@ spec:
                   type: string
                 type: array
               placementRules:
-                items:
-                  type: string
-                type: array
-              policies:
                 items:
                   type: string
                 type: array

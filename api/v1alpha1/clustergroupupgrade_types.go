@@ -109,7 +109,7 @@ type ClusterGroupUpgradeStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 	PlacementBindings []string           `json:"placementBindings,omitempty"`
 	PlacementRules    []string           `json:"placementRules,omitempty"`
-	Policies          []string           `json:"policies,omitempty"`
+	CopiedPolicies    []string           `json:"copiedPolicies,omitempty"`
 	Conditions        []metav1.Condition `json:"conditions,omitempty"`
 	RemediationPlan   [][]string         `json:"remediationPlan,omitempty"`
 	ManagedPoliciesNs map[string]string  `json:"managedPoliciesNs,omitempty"`
