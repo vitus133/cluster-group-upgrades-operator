@@ -99,8 +99,10 @@ type UpgradeStatus struct {
 
 // PrecacheStatus defines the pre-cache state of a single cluster
 type ClusterPrecacheState struct {
-	State   string `json:"state"`
-	Message string `json:"message,omitempty"`
+	State     string      `json:"state"`
+	Message   string      `json:"message,omitempty"`
+	StartedAt metav1.Time `json:"startedAt,omitempty"`
+	UpdatedAt metav1.Time `json:"UpdatedAt,omitempty"`
 }
 
 // PolicyStatus defines the observed state of a Policy
