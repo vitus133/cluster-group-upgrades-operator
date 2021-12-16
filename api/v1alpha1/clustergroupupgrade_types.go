@@ -97,6 +97,12 @@ type UpgradeStatus struct {
 	CurrentRemediationPolicyIndex map[string]int `json:"remediationPlanForBatch,omitempty"`
 }
 
+// PrecacheStatus defines the pre-cache state of a single cluster
+type ClusterPrecacheState struct {
+	State   string `json:"state"`
+	Message string `json:"message,omitempty"`
+}
+
 // PolicyStatus defines the observed state of a Policy
 type PolicyStatus struct {
 	Name            string `json:"name,omitempty"`
@@ -107,13 +113,14 @@ type PolicyStatus struct {
 type ClusterGroupUpgradeStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	PlacementBindings []string           `json:"placementBindings,omitempty"`
-	PlacementRules    []string           `json:"placementRules,omitempty"`
-	CopiedPolicies    []string           `json:"copiedPolicies,omitempty"`
-	Conditions        []metav1.Condition `json:"conditions,omitempty"`
-	RemediationPlan   [][]string         `json:"remediationPlan,omitempty"`
-	ManagedPoliciesNs map[string]string  `json:"managedPoliciesNs,omitempty"`
-	Status            UpgradeStatus      `json:"status,omitempty"`
+	PlacementBindings []string                        `json:"placementBindings,omitempty"`
+	PlacementRules    []string                        `json:"placementRules,omitempty"`
+	CopiedPolicies    []string                        `json:"copiedPolicies,omitempty"`
+	Conditions        []metav1.Condition              `json:"conditions,omitempty"`
+	RemediationPlan   [][]string                      `json:"remediationPlan,omitempty"`
+	ManagedPoliciesNs map[string]string               `json:"managedPoliciesNs,omitempty"`
+	Status            UpgradeStatus                   `json:"status,omitempty"`
+	PrecacheStatus    map[string]ClusterPrecacheState `json:"PrecacheStatus,omitempty"`
 }
 
 //+kubebuilder:object:root=true

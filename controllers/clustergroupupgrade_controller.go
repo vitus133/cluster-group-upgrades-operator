@@ -100,11 +100,11 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.Log.Error(err, "degug * debug * debug", "cnfdt16Creds", cnfdt16Creds)
 	}
 
-	jobStatus, err := r.getPrecacheJobStatus(ctx, clientset)
+	jobStatus, err := r.getPrecacheJobState(ctx, clientset)
 	if err != nil {
-		r.Log.Error(err, "degug * debug * debug", "getPrecacheJobStatus", "error")
+		r.Log.Error(err, "degug * debug * debug", "getPrecacheJobState", "error")
 	}
-	r.Log.Info("degug * debug * debug", "getPrecacheJobStatus", jobStatus)
+	r.Log.Info("degug * debug * debug", "getPrecacheJobState", jobStatus)
 	// End debug
 
 	nextReconcile := ctrl.Result{}
@@ -1408,8 +1408,8 @@ func (r *ClusterGroupUpgradeReconciler) getManagedClusterCredentials(
 	return secret.Data["kubeconfig"], nil
 }
 
-// getSpokeClientset Connects to the sppoke cluster.
-// returns: *kubernetes.Clientset - connection handle
+// getSpokeClientset: Connects to the spoke cluster.
+// returns: *kubernetes.Clientset - API clientset
 //			error
 func (r *ClusterGroupUpgradeReconciler) getSpokeClientset(
 	kubeconfig []byte) (*kubernetes.Clientset, error) {
@@ -1427,7 +1427,11 @@ func (r *ClusterGroupUpgradeReconciler) getSpokeClientset(
 	return clientset, err
 }
 
-func (r *ClusterGroupUpgradeReconciler) getPrecacheJobStatus(
+// getPrecacheJobState: Gets the pre-caching state from the spoke.
+// returns: string - job state, one of "NotStarted", "Active", "Succeeded",
+//                   "PartiallyDone", "UnrecoverableError", "UnforeseenStatus"
+//			error
+func (r *ClusterGroupUpgradeReconciler) getPrecacheJobState(
 	ctx context.Context, clientset *kubernetes.Clientset) (
 	string, error) {
 
@@ -1448,7 +1452,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheJobStatus(
 	}
 	for _, condition := range preCacheJob.Status.Conditions {
 		if condition.Type == "Failed" && condition.Status == "True" {
-			r.Log.Info("getPrecacheJobStatus", "condition",
+			r.Log.Info("getPrecacheJobState", "condition",
 				condition.String())
 			if condition.Reason == "DeadlineExceeded" {
 				return utils.PrecachePartiallyDone, nil
