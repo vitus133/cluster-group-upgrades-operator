@@ -102,7 +102,8 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	r.Log.Info("degug * debug * debug", "getPrecacheJobState", jobStatus)
 
-	err = r.createPrecacheJob(ctx, clientset)
+	var deadline int64 = 14400
+	err = r.createPrecacheJob(ctx, clientset, "quay.io/vgrinber/pre-cache:latest", deadline)
 	if err != nil {
 		r.Log.Error(err, "createPrecacheJob")
 	}

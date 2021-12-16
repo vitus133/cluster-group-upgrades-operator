@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	utils "github.com/openshift-kni/cluster-group-upgrades-operator/controllers/utils"
 	batchv1 "k8s.io/api/batch/v1"
@@ -95,32 +96,150 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheJobState(
 		string(jobStatus)))
 }
 
-func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, clientset *kubernetes.Clientset) error {
-	var BackoffLimit int32 = 0
-	var ActiveDeadlineSeconds int64 = 14400
-	jobs := clientset.BatchV1().Jobs(utils.PrecacheJobNamespace)
-	cont := fmt.Sprintf("%s-container", utils.PrecacheJobName)
-	image := "quay.io/vgrinber/pre-cache:latest"
-	var env = []corev1.EnvVar{
+// makeContainerMounts: fills the precaching container mounts structure.
+// returns: *[]corev1.VolumeMount - volume mount list pointer
+func (r *ClusterGroupUpgradeReconciler) makeContainerMounts() *[]corev1.VolumeMount {
+	var mounts []corev1.VolumeMount = []corev1.VolumeMount{
+		{
+			Name:      "cache",
+			MountPath: "/cache",
+		}, {
+			Name:      "varlibcontainers",
+			MountPath: "/var/lib/containers",
+		}, {
+			Name:      "pull",
+			MountPath: "/var/lib/kubelet/config.json",
+			ReadOnly:  true,
+		}, {
+			Name:      "config-volume",
+			MountPath: "/etc/config",
+			ReadOnly:  true,
+		}, {
+			Name:      "registries",
+			MountPath: "/etc/containers/registries.conf",
+			ReadOnly:  true,
+		}, {
+			Name:      "policy",
+			MountPath: "/etc/containers/policy.json",
+			ReadOnly:  true,
+		}, {
+			Name:      "etcdocker",
+			MountPath: "/etc/docker",
+			ReadOnly:  true,
+		}, {
+			Name:      "usr",
+			MountPath: "/usr",
+			ReadOnly:  true,
+		},
+	}
+	return &mounts
+}
+
+// makePodVolumes: fills the precaching pod volumes structure.
+// returns: *[]corev1.Volume - volume list pointer
+func (r *ClusterGroupUpgradeReconciler) makePodVolumes() *[]corev1.Volume {
+	dirType := corev1.HostPathDirectory
+	fileType := corev1.HostPathFile
+	var volumes []corev1.Volume = []corev1.Volume{
+		{
+			Name: "cache",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		}, {
+			Name: "config-volume",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: "pre-cache-spec",
+					},
+				},
+			},
+		}, {
+			Name: "varlibcontainers",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/lib/containers",
+					Type: &dirType,
+				},
+			},
+		}, {
+			Name: "registries",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/etc/containers/registries.conf",
+					Type: &fileType,
+				},
+			},
+		}, {
+			Name: "policy",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/etc/containers/policy.json",
+					Type: &fileType,
+				},
+			},
+		}, {
+			Name: "etcdocker",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/etc/docker",
+					Type: &dirType,
+				},
+			},
+		}, {
+			Name: "usr",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/usr",
+					Type: &dirType,
+				},
+			},
+		}, {
+			Name: "pull",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/lib/kubelet/config.json",
+					Type: &fileType,
+				},
+			},
+		},
+	}
+	return &volumes
+}
+
+// makeContainerEnv: fills the precaching container environment variables.
+// returns: *[]corev1.EnvVar - EnvVar list pointer
+func (r *ClusterGroupUpgradeReconciler) makeContainerEnv(deadline int64) *[]corev1.EnvVar {
+	var envs []corev1.EnvVar = []corev1.EnvVar{
 		{
 			Name:  "pull_timeout",
-			Value: "14400",
+			Value: strconv.FormatInt(deadline, 10),
 		},
 		{
 			Name:  "config_volume_path",
 			Value: "/etc/config",
 		},
 	}
-	dirType := corev1.HostPathDirectory
-	fileType := corev1.HostPathFile
+	return &envs
+}
+
+// createPrecacheJob: Creates a new pre-cache job on the spoke.
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, clientset *kubernetes.Clientset, image string, deadline int64) error {
+	jobs := clientset.BatchV1().Jobs(utils.PrecacheJobNamespace)
+	cont := fmt.Sprintf("%s-container", utils.PrecacheJobName)
+	volumes := r.makePodVolumes()
+	mounts := r.makeContainerMounts()
+	envs := r.makeContainerEnv(deadline)
 	jobSpec := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      utils.PrecacheJobName,
 			Namespace: utils.PrecacheJobNamespace,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit:          &BackoffLimit,
-			ActiveDeadlineSeconds: &ActiveDeadlineSeconds,
+			BackoffLimit:          new(int32),
+			ActiveDeadlineSeconds: &deadline,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -128,114 +247,19 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, c
 							Name:    cont,
 							Image:   image,
 							Command: []string{"/bin/bash", "-c"},
-							Args:    []string{"/opt/precache/precache.sh"},
-							Env:     env,
+							//Args:    []string{"/opt/precache/precache.sh"},
+							Args: []string{"sleep inf"},
+							Env:  *envs,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: func() *bool { b := true; return &b }(),
 								RunAsUser:  new(int64),
 							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "cache",
-									MountPath: "/cache",
-								}, {
-									Name:      "varlibcontainers",
-									MountPath: "/var/lib/containers",
-								}, {
-									Name:      "pull",
-									MountPath: "/var/lib/kubelet/config.json",
-									ReadOnly:  true,
-								}, {
-									Name:      "config-volume",
-									MountPath: "/etc/config",
-									ReadOnly:  true,
-								}, {
-									Name:      "registries",
-									MountPath: "/etc/containers/registries.conf",
-									ReadOnly:  true,
-								}, {
-									Name:      "policy",
-									MountPath: "/etc/containers/policy.json",
-									ReadOnly:  true,
-								}, {
-									Name:      "etcdocker",
-									MountPath: "/etc/docker",
-									ReadOnly:  true,
-								}, {
-									Name:      "usr",
-									MountPath: "/usr",
-									ReadOnly:  true,
-								},
-							},
+							VolumeMounts: *mounts,
 						},
 					},
 					ServiceAccountName: utils.PrecacheServiceAccountName,
 					RestartPolicy:      corev1.RestartPolicyNever,
-					Volumes: []corev1.Volume{
-						{
-							Name: "cache",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						}, {
-							Name: "config-volume",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "pre-cache-spec",
-									},
-								},
-							},
-						}, {
-							Name: "varlibcontainers",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/containers",
-									Type: &dirType,
-								},
-							},
-						}, {
-							Name: "registries",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/etc/containers/registries.conf",
-									Type: &fileType,
-								},
-							},
-						}, {
-							Name: "policy",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/etc/containers/policy.json",
-									Type: &fileType,
-								},
-							},
-						}, {
-							Name: "etcdocker",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/etc/docker",
-									Type: &dirType,
-								},
-							},
-						}, {
-							Name: "usr",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/usr",
-									Type: &dirType,
-								},
-							},
-						}, {
-							Name: "pull",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/var/lib/kubelet/config.json",
-									Type: &fileType,
-								},
-							},
-						},
-					},
+					Volumes:            *volumes,
 				},
 			},
 		},
@@ -245,6 +269,7 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, c
 
 	if err != nil {
 		r.Log.Error(err, "createPrecacheJob")
+		return err
 	}
 	r.Log.Info("createPrecacheJob", "createPrecacheJob", "success")
 	return nil
