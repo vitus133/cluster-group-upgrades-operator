@@ -274,3 +274,17 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, c
 	r.Log.Info("createPrecacheJob", "createPrecacheJob", "success")
 	return nil
 }
+
+// deletePrecacheJob: Deletes a pre-cache job on the spoke.
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) deletePrecacheJob(ctx context.Context, clientset *kubernetes.Clientset) error {
+	jobs := clientset.BatchV1().Jobs(utils.PrecacheJobNamespace)
+	err := jobs.Delete(ctx, utils.PrecacheJobName, metav1.DeleteOptions{})
+	if err != nil {
+		r.Log.Error(err, "deletePrecacheJob")
+		return err
+	}
+	r.Log.Info("deletePrecacheJob", "deletePrecacheJob", "success")
+	return nil
+
+}

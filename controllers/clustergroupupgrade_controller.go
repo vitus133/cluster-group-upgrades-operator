@@ -107,6 +107,10 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil {
 		r.Log.Error(err, "createPrecacheJob")
 	}
+	err = r.deletePrecacheJob(ctx, clientset)
+	if err != nil {
+		r.Log.Error(err, "deletePrecacheJob")
+	}
 	// End debug
 
 	nextReconcile := ctrl.Result{}
