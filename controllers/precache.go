@@ -211,7 +211,9 @@ func (r *ClusterGroupUpgradeReconciler) makePodVolumes() *[]corev1.Volume {
 
 // makeContainerEnv: fills the precaching container environment variables.
 // returns: *[]corev1.EnvVar - EnvVar list pointer
-func (r *ClusterGroupUpgradeReconciler) makeContainerEnv(deadline int64) *[]corev1.EnvVar {
+func (r *ClusterGroupUpgradeReconciler) makeContainerEnv(
+	deadline int64) *[]corev1.EnvVar {
+
 	var envs []corev1.EnvVar = []corev1.EnvVar{
 		{
 			Name:  "pull_timeout",
@@ -227,7 +229,12 @@ func (r *ClusterGroupUpgradeReconciler) makeContainerEnv(deadline int64) *[]core
 
 // createPrecacheJob: Creates a new pre-cache job on the spoke.
 // returns: error
-func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, clientset *kubernetes.Clientset, image string, deadline int64) error {
+func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(
+	ctx context.Context,
+	clientset *kubernetes.Clientset,
+	image string,
+	deadline int64) error {
+
 	jobs := clientset.BatchV1().Jobs(utils.PrecacheJobNamespace)
 	cont := fmt.Sprintf("%s-container", utils.PrecacheJobName)
 	volumes := r.makePodVolumes()
@@ -252,8 +259,11 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, c
 							Args: []string{"sleep inf"},
 							Env:  *envs,
 							SecurityContext: &corev1.SecurityContext{
-								Privileged: func() *bool { b := true; return &b }(),
-								RunAsUser:  new(int64),
+								Privileged: func() *bool {
+									b := true
+									return &b
+								}(),
+								RunAsUser: new(int64),
 							},
 							VolumeMounts: *mounts,
 						},
@@ -276,9 +286,11 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(ctx context.Context, c
 	return nil
 }
 
-// deletePrecacheJob: Deletes a pre-cache job on the spoke.
+// deletePrecacheJob: Deletes the pre-cache job on the spoke.
 // returns: error
-func (r *ClusterGroupUpgradeReconciler) deletePrecacheJob(ctx context.Context, clientset *kubernetes.Clientset) error {
+func (r *ClusterGroupUpgradeReconciler) deletePrecacheJob(
+	ctx context.Context, clientset *kubernetes.Clientset) error {
+
 	jobs := clientset.BatchV1().Jobs(utils.PrecacheJobNamespace)
 	err := jobs.Delete(ctx, utils.PrecacheJobName, metav1.DeleteOptions{})
 	if err != nil {
@@ -287,9 +299,11 @@ func (r *ClusterGroupUpgradeReconciler) deletePrecacheJob(ctx context.Context, c
 	}
 	r.Log.Info("deletePrecacheJob", "deletePrecacheJob", "success")
 	return nil
-
 }
 
+// getPrecacheimagePullSpec: Get the precaching workload image pull spec.
+// returns: image - pull spec string
+//          error
 func (r *ClusterGroupUpgradeReconciler) getPrecacheimagePullSpec(
 	ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (
@@ -307,4 +321,59 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheimagePullSpec(
 			fmt.Errorf("getPrecacheimagePullSpec - not implemented"))
 	}
 	return image, nil
+}
+
+// syncPreCacheSpecConfigMap: Creates or updates precache spec configmap.
+// returns: error
+// Note: if configmap is updated when a precache job is already running,
+// the update wouldn't have any effect
+func (r *ClusterGroupUpgradeReconciler) syncPreCacheSpecConfigMap(
+	ctx context.Context,
+	clientset *kubernetes.Clientset,
+	softwareSpec map[string]string) error {
+
+	cms := clientset.CoreV1().ConfigMaps(utils.PrecacheJobNamespace)
+
+	cm := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      utils.PrecacheSpecCmName,
+			Namespace: utils.PrecacheJobNamespace,
+		},
+		Data: softwareSpec,
+	}
+
+	_, err := cms.Get(ctx, utils.PrecacheSpecCmName, metav1.GetOptions{})
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			_, err = cms.Create(ctx, cm, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("couldn't create ConfigMap: %v", err)
+			}
+			r.Log.Info("Created ConfigMap for", cm.Namespace, cm.Name)
+		} else {
+			return fmt.Errorf("failed to get ConfigMap: %v", err)
+		}
+	} else {
+		r.Log.Info("ConfigMap exists, updating", cm.Namespace, cm.Name)
+		_, err = cms.Update(ctx, cm, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("couldn't update ConfigMap: %v", err)
+		}
+	}
+	return nil
+}
+
+// deletePreCacheSpecConfigMap: Deletes the precache spec configmap.
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) deletePreCacheSpecConfigMap(
+	ctx context.Context,
+	clientset *kubernetes.Clientset) error {
+
+	cms := clientset.CoreV1().ConfigMaps(utils.PrecacheJobNamespace)
+	return cms.Delete(ctx, utils.PrecacheSpecCmName, metav1.DeleteOptions{})
 }

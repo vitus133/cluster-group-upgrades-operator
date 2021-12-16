@@ -20,6 +20,7 @@ const (
 	PrecacheJobNamespace       = "pre-cache"
 	PrecacheJobName            = "pre-cache"
 	PrecacheServiceAccountName = "pre-cache-agent"
+	PrecacheSpecCmName         = "pre-cache-spec"
 	JobNotFoundString          = "jobs.batch \"pre-cache\" not found"
 
 	PrecacheNotStarted         = "NotStarted"
