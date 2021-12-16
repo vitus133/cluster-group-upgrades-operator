@@ -16,9 +16,10 @@ const (
 	KubeconfigSecretSuffix = "admin-kubeconfig"
 
 	// precaching job constants and states
-	PrecacheJobNamespace = "pre-cache"
-	PrecacheJobName      = "pre-cache"
-	JobNotFoundString    = "jobs.batch \"pre-cache\" not found"
+	PrecacheJobNamespace       = "pre-cache"
+	PrecacheJobName            = "pre-cache"
+	PrecacheServiceAccountName = "pre-cache-agent"
+	JobNotFoundString          = "jobs.batch \"pre-cache\" not found"
 
 	PrecacheNotStarted         = "NotStarted"
 	PrecacheActive             = "Active"
