@@ -12,8 +12,9 @@ const (
 	NoPolicyIndex        = -1
 	AllPoliciesValidated = -2
 
-	ChildPolicyLabel       = "policy.open-cluster-management.io/root-policy"
-	KubeconfigSecretSuffix = "admin-kubeconfig"
+	ChildPolicyLabel        = "policy.open-cluster-management.io/root-policy"
+	KubeconfigSecretSuffix  = "admin-kubeconfig"
+	OperatorConfigOverrides = "cluster-group-upgrade-overrides"
 
 	// precaching job constants and states
 	PrecacheJobNamespace       = "pre-cache"

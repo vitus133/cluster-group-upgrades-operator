@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	ranv1alpha1 "github.com/openshift-kni/cluster-group-upgrades-operator/api/v1alpha1"
 	utils "github.com/openshift-kni/cluster-group-upgrades-operator/controllers/utils"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -287,4 +288,23 @@ func (r *ClusterGroupUpgradeReconciler) deletePrecacheJob(ctx context.Context, c
 	r.Log.Info("deletePrecacheJob", "deletePrecacheJob", "success")
 	return nil
 
+}
+
+func (r *ClusterGroupUpgradeReconciler) getPrecacheimagePullSpec(
+	ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (
+	string, error) {
+
+	overrides, err := r.getOperatorConfigOverrides(ctx, clusterGroupUpgrade)
+	if err != nil {
+		r.Log.Error(err, "getOperatorConfigOverrides")
+		return "", err
+	}
+	image := overrides["precache.image"]
+	if image == "" {
+		// TODO: implement getting precaching image pull spec from CSV
+		return "", errors.NewInternalError(
+			fmt.Errorf("getPrecacheimagePullSpec - not implemented"))
+	}
+	return image, nil
 }
