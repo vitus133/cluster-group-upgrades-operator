@@ -85,38 +85,10 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// This is for debug - remove before commit
-	cnfdt16Creds, err := r.getManagedClusterCredentials(ctx, "cnfdt16")
+	err = r.reconcilePrecaching(ctx, clusterGroupUpgrade)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
-	clientset, err := r.getSpokeClientset(cnfdt16Creds)
-	if err != nil {
-		r.Log.Error(err, "degug * debug * debug", "cnfdt16Creds", cnfdt16Creds)
-	}
-
-	jobStatus, err := r.getPrecacheJobState(ctx, clientset)
-	if err != nil {
-		r.Log.Error(err, "degug * debug * debug", "getPrecacheJobState", "error")
-	}
-	r.Log.Info("degug * debug * debug", "getPrecacheJobState", jobStatus)
-
-	image, err := r.getPrecacheimagePullSpec(ctx, clusterGroupUpgrade)
-	if err != nil {
-		r.Log.Error(err, "getPrecacheimagePullSpec")
-	}
-	r.Log.Info("degug * debug * debug", "getPrecacheimagePullSpec", image)
-	var deadline int64 = 14400
-	err = r.createPrecacheJob(ctx, clientset, image, deadline)
-	if err != nil {
-		r.Log.Error(err, "createPrecacheJob")
-	}
-	err = r.deletePrecacheJob(ctx, clientset)
-	if err != nil {
-		r.Log.Error(err, "deletePrecacheJob")
-	}
-	// End debug
 
 	nextReconcile := ctrl.Result{}
 	readyCondition := meta.FindStatusCondition(clusterGroupUpgrade.Status.Conditions, "Ready")
@@ -130,7 +102,11 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 			Message: "The ClusterGroupUpgrade CR is not enabled",
 		})
 	} else if readyCondition.Status == metav1.ConditionFalse {
-		if readyCondition.Reason == "UpgradeNotStarted" || readyCondition.Reason == "UpgradeCannotStart" {
+		if readyCondition.Reason == "PrecachingRequired" {
+			requeueAfter := 30 * time.Minute
+			nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
+			return nextReconcile, nil
+		} else if readyCondition.Reason == "UpgradeNotStarted" || readyCondition.Reason == "UpgradeCannotStart" {
 			// Before starting the upgrade check that all the managed policies exist.
 			allManagedPoliciesExist, managedPoliciesMissing, managedPoliciesPresent, err := r.doManagedPoliciesExist(ctx, clusterGroupUpgrade)
 			if err != nil {

@@ -4,3 +4,12 @@ metadata:
   name: cluster-group-upgrade-overrides
 data:
   precache.image: quay.io/example/pre-cache:latest
+  platform.image: quay.io/openshift-release-dev/ocp-release:4.9.4-x86_64
+  operators.indexes: |
+    registry.example.com:5000/custom-redhat-operators:1.0.0
+  operators.packagesAndChannels: |
+    local-storage-operator: stable
+    performance-addon-operator: 4.9
+    ptp-operator: stable
+    sriov-network-operator: stable
+

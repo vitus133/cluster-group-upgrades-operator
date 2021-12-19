@@ -24,6 +24,8 @@ const (
 	JobNotFoundString          = "jobs.batch \"pre-cache\" not found"
 
 	PrecacheNotStarted         = "NotStarted"
+	PrecacheStarting           = "Starting"
+	PrecacheFailedToStart      = "FailiedToStart"
 	PrecacheActive             = "Active"
 	PrecacheSucceeded          = "Succeeded"
 	PrecachePartiallyDone      = "PartiallyDone"

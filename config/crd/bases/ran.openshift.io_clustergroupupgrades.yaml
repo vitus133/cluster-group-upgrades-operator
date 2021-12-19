@@ -94,23 +94,18 @@ spec:
             description: ClusterGroupUpgradeStatus defines the observed state of ClusterGroupUpgrade
             properties:
               PrecacheStatus:
-                additionalProperties:
-                  description: PrecacheStatus defines the pre-cache state of a single
-                    cluster
-                  properties:
-                    UpdatedAt:
-                      format: date-time
+                description: PrecacheStatus defines the pre-cache state of a single
+                  cluster
+                properties:
+                  UpdatedAt:
+                    format: date-time
+                    type: string
+                  state:
+                    additionalProperties:
                       type: string
-                    message:
-                      type: string
-                    startedAt:
-                      format: date-time
-                      type: string
-                    state:
-                      type: string
-                  required:
-                  - state
-                  type: object
+                    type: object
+                required:
+                - state
                 type: object
               conditions:
                 items:
