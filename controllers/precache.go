@@ -43,7 +43,7 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 		return fmt.Errorf("cannot obtain the CR cluster list: %s", err)
 	}
 
-	// Make sure update won't proceed
+	// Make sure update won't proceed if we fail on error
 	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
 		Type:    "Ready",
 		Status:  metav1.ConditionFalse,

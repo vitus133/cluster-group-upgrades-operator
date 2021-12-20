@@ -106,7 +106,6 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 		if readyCondition.Reason == "PrecachingRequired" {
 			requeueAfter := 30 * time.Minute
 			nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
-			return nextReconcile, nil
 		} else if readyCondition.Reason == "UpgradeNotStarted" || readyCondition.Reason == "UpgradeCannotStart" {
 			// Before starting the upgrade check that all the managed policies exist.
 			allManagedPoliciesExist, managedPoliciesMissing, managedPoliciesPresent, err := r.doManagedPoliciesExist(ctx, clusterGroupUpgrade)
