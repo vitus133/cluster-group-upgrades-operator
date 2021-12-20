@@ -1,0 +1,15 @@
+apiVersion: ran.openshift.io/v1alpha1
+kind: ClusterGroupUpgrade
+metadata:
+  name: test
+  namespace: default
+spec:
+  preCaching: true
+  enable: false
+  clusters:
+  - cnfdt16
+  remediationStrategy:
+    canaries: []
+    maxConcurrency: 1
+  managedPolicies:
+  - cnfdt16-policies.common-cnfdt16-ptp-sub-policy

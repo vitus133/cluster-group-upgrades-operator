@@ -43,7 +43,6 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 		return fmt.Errorf("cannot obtain the CR cluster list: %s", err)
 	}
 
-	// Make sure update won't proceed if we fail on error
 	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
 		Type:    "Ready",
 		Status:  metav1.ConditionFalse,
@@ -66,6 +65,15 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 		}
 
 		clusterState[cluster] = jobStatus
+		if len(clusterGroupUpgrade.Status.PrecacheStatus) == 0 && jobStatus == utils.PrecachePartiallyDone {
+			// This condition means that there is a pre-cache job created on the previous
+			// mtce window, but there was not enough time to complete it. The UOCR was
+			// deleted and re-created. In this case we delete the job and create it again
+			r.deletePrecacheJob(ctx, clientset)
+			if err != nil {
+				return err
+			}
+		}
 		if jobStatus == utils.PrecacheNotStarted {
 			err = r.deployPrecachingWorkload(ctx, clientset, clusterGroupUpgrade, cluster)
 			if err != nil {
@@ -106,31 +114,45 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "createPreCacheWorkloadNamespace on ",
+		cluster, "status", "success")
 	err = r.createPreCacheWorkloadServiceAccount(ctx, clientset)
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "createPreCacheWorkloadServiceAccount on ",
+		cluster, "status", "success")
 	err = r.createPreCacheWorkloadClusterRoleBinding(ctx, clientset)
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "createPreCacheWorkloadClusterRoleBinding on ",
+		cluster, "status", "success")
 	spec, err := r.getPrecacheSoftwareSpec(ctx, clusterGroupUpgrade, cluster)
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheSoftwareSpec for ",
+		cluster, "status", "success")
 	err = r.syncPreCacheSpecConfigMap(ctx, clientset, spec)
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "syncPreCacheSpecConfigMap for ",
+		cluster, "status", "success")
 	image, err := r.getPrecacheimagePullSpec(ctx, clusterGroupUpgrade)
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheimagePullSpec for ",
+		cluster, "status", "success")
 	var deadline int64 = 14400 // TODO: Remove after removing from precache workload image
 	err = r.createPrecacheJob(ctx, clientset, image, deadline)
 	if err != nil {
 		return err
 	}
+	r.Log.Info("[deployPrecachingWorkload]", "createPrecacheJob for ",
+		cluster, "status", "success")
 	return nil
 }
 
@@ -374,7 +396,7 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(
 							Image:   image,
 							Command: []string{"/bin/bash", "-c"},
 							Args:    []string{"/opt/precache/precache.sh"},
-							// Args: []string{"sleep 10; exit 0"},
+							// Args: []string{"sleep inf"},
 							Env: *envs,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: func() *bool {
