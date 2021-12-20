@@ -39,16 +39,16 @@ func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context,
 
 func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 	clusters, err := r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
+	if err != nil {
+		return fmt.Errorf("cannot obtain the CR cluster list: %s", err)
+	}
+
 	// Make sure update won't proceed
 	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
 		Type:    "Ready",
 		Status:  metav1.ConditionFalse,
 		Reason:  "PrecachingRequired",
 		Message: "Precaching is not completed (required)"})
-
-	if err != nil {
-		return fmt.Errorf("cannot obtain the CR cluster list: %s", err)
-	}
 
 	clusterState := make(map[string]string)
 	for _, cluster := range clusters {
@@ -69,16 +69,35 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 		if jobStatus == utils.PrecacheNotStarted {
 			err = r.deployPrecachingWorkload(ctx, clientset, clusterGroupUpgrade, cluster)
 			if err != nil {
-				clusterGroupUpgrade.Status.PrecacheStatus.State[cluster] = utils.PrecacheFailedToStart
-				clusterGroupUpgrade.Status.PrecacheStatus.UpdatedAt = metav1.Now()
+				clusterGroupUpgrade.Status.PrecacheStatus[cluster] = utils.PrecacheFailedToStart
 				return err
 			}
 			clusterState[cluster] = utils.PrecacheStarting
 		}
 	}
-	clusterGroupUpgrade.Status.PrecacheStatus.State = clusterState
-	clusterGroupUpgrade.Status.PrecacheStatus.UpdatedAt = metav1.Now()
+	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
+	// for key, val := range clusterState {
+	// 	r.Log.Info("updatePrecachingStatus", key, val)
+	// 	clusterGroupUpgrade.Status.PrecacheStatus[key] = val
+	// }
 
+	clusterGroupUpgrade.Status.PrecacheStatus = clusterState
+
+	if func() bool {
+		for _, state := range clusterState {
+			if state != utils.PrecacheSucceeded {
+				return false
+			}
+		}
+		return true
+	}() {
+		// Handle completion
+		meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "UpgradeNotStarted",
+			Message: "Precaching is completed"})
+	}
 	return nil
 }
 
@@ -112,7 +131,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	if err != nil {
 		return err
 	}
-	var deadline int64 = 14400 // TODO: Remove after fixing precache workload image
+	var deadline int64 = 14400 // TODO: Remove after removing from precache workload image
 	err = r.createPrecacheJob(ctx, clientset, image, deadline)
 	if err != nil {
 		return err
@@ -184,6 +203,8 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheJobState(
 			r.Log.Info("getPrecacheJobState", "condition",
 				condition.String())
 			if condition.Reason == "DeadlineExceeded" {
+				r.Log.Info("getPrecacheJobState", "DeadlineExceeded",
+					"Partially done")
 				return utils.PrecachePartiallyDone, nil
 			} else if condition.Reason == "BackoffLimitExceeded" {
 				return utils.PrecacheUnrecoverableError, fmt.Errorf(condition.String())
