@@ -202,7 +202,8 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheJobState(
 					"Partially done")
 				return utils.PrecachePartiallyDone, nil
 			} else if condition.Reason == "BackoffLimitExceeded" {
-				return utils.PrecacheUnrecoverableError, fmt.Errorf(condition.String())
+				// return utils.PrecacheUnrecoverableError, fmt.Errorf(condition.String())
+				return utils.PrecacheUnrecoverableError, nil
 			}
 			break
 		}
@@ -373,7 +374,7 @@ func (r *ClusterGroupUpgradeReconciler) createPrecacheJob(
 							Image:   image,
 							Command: []string{"/bin/bash", "-c"},
 							Args:    []string{"/opt/precache/precache.sh"},
-							// Debug: Args: []string{"sleep inf"},
+							// Args: []string{"sleep 10; exit 0"},
 							Env: *envs,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: func() *bool {
