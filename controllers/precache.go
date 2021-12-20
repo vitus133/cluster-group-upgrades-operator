@@ -76,11 +76,6 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 		}
 	}
 	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
-	// for key, val := range clusterState {
-	// 	r.Log.Info("updatePrecachingStatus", key, val)
-	// 	clusterGroupUpgrade.Status.PrecacheStatus[key] = val
-	// }
-
 	clusterGroupUpgrade.Status.PrecacheStatus = clusterState
 
 	if func() bool {

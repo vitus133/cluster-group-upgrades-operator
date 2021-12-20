@@ -87,6 +87,7 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	err = r.reconcilePrecaching(ctx, clusterGroupUpgrade)
 	if err != nil {
+		r.Log.Error(err, "reconcilePrecaching")
 		return ctrl.Result{}, err
 	}
 
