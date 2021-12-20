@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -54,7 +55,7 @@ type ClusterGroupUpgradeReconciler struct {
 //+kubebuilder:rbac:groups=apps.open-cluster-management.io,resources=placementrules,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=policy.open-cluster-management.io,resources=placementbindings,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=policy.open-cluster-management.io,resources=policies,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch;
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -126,13 +127,44 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 					return ctrl.Result{}, err
 				}
 
+				// Set default values for status reason and message.
 				var statusReason, statusMessage string
 				statusReason = "UpgradeNotStarted"
 				statusMessage = "The ClusterGroupUpgrade CR is not enabled"
-				if clusterGroupUpgrade.Spec.Enable == true {
-					statusReason = "UpgradeNotCompleted"
-					statusMessage = "The ClusterGroupUpgrade CR has upgrade policies that are still non compliant"
-					clusterGroupUpgrade.Status.Status.StartedAt = metav1.Now()
+				requeueAfter := 5 * time.Minute
+
+				// If the remediation plan is empty, update the status.
+				if clusterGroupUpgrade.Status.RemediationPlan == nil {
+					statusReason = "UpgradeCannotStart"
+					statusMessage = "The ClusterGroupUpgrade CR has no NonCompliant clusters for the specified managed policies"
+				} else if clusterGroupUpgrade.Spec.Enable == true {
+					// Check if there are any CRs that are blocking the start of the current one and are not yet completed.
+					blockingCRsNotCompleted, blockingCRsMissing, err := r.blockingCRsNotCompleted(ctx, clusterGroupUpgrade)
+					if err != nil {
+						return ctrl.Result{}, err
+					}
+
+					if len(blockingCRsMissing) > 0 {
+						// If there are blocking CRs missing, update the message to show which those are.
+						statusReason = "UpgradeCannotStart"
+						statusMessage = fmt.Sprintf("The ClusterGroupUpgrade CR has blocking CRs that are missing: %s", blockingCRsMissing)
+						requeueAfter := 1 * time.Minute
+						nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
+					} else if len(blockingCRsNotCompleted) > 0 {
+						// If there are blocking CRs that are not completed, then the upgrade can't start.
+						statusReason = "UpgradeCannotStart"
+						statusMessage = fmt.Sprintf("The ClusterGroupUpgrade CR is blocked by other CRs that have not yet completed: %s", blockingCRsNotCompleted)
+						requeueAfter := 1 * time.Minute
+						nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
+					} else {
+						// If there are no blocking CRs or if all the blocking CRs have completed, start the upgrade.
+						statusReason = "UpgradeNotCompleted"
+						statusMessage = "The ClusterGroupUpgrade CR has upgrade policies that are still non compliant"
+						clusterGroupUpgrade.Status.Status.StartedAt = metav1.Now()
+						nextReconcile = ctrl.Result{Requeue: true}
+					}
+				} else {
+					nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
 				}
 				meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
 					Type:    "Ready",
@@ -398,42 +430,42 @@ func (r *ClusterGroupUpgradeReconciler) updatePlacementRuleWithClusters(
 
 	if err != nil {
 		return err
-	} else {
-		placementRuleSpecClusters := placementRule.Object["spec"].(map[string]interface{})
+	}
 
-		var prClusterNames []string
-		var updatedClusters []map[string]interface{}
-		currentClusters := placementRuleSpecClusters["clusters"]
+	placementRuleSpecClusters := placementRule.Object["spec"].(map[string]interface{})
 
-		if currentClusters != nil {
-			// Check clusterName is not already present in currentClusters
-			for _, clusterEntry := range currentClusters.([]interface{}) {
-				clusterMap := clusterEntry.(map[string]interface{})
-				updatedClusters = append(updatedClusters, clusterMap)
-				prClusterNames = append(prClusterNames, clusterMap["name"].(string))
+	var prClusterNames []string
+	var updatedClusters []map[string]interface{}
+	currentClusters := placementRuleSpecClusters["clusters"]
+
+	if currentClusters != nil {
+		// Check clusterName is not already present in currentClusters
+		for _, clusterEntry := range currentClusters.([]interface{}) {
+			clusterMap := clusterEntry.(map[string]interface{})
+			updatedClusters = append(updatedClusters, clusterMap)
+			prClusterNames = append(prClusterNames, clusterMap["name"].(string))
+		}
+	}
+
+	for _, clusterName := range clusterNames {
+		isCurrentClusterAlreadyPresent := false
+		for _, prClusterName := range prClusterNames {
+			if prClusterName == clusterName {
+				isCurrentClusterAlreadyPresent = true
+				break
 			}
 		}
-
-		for _, clusterName := range clusterNames {
-			isCurrentClusterAlreadyPresent := false
-			for _, prClusterName := range prClusterNames {
-				if prClusterName == clusterName {
-					isCurrentClusterAlreadyPresent = true
-					break
-				}
-			}
-			if isCurrentClusterAlreadyPresent == false {
-				updatedClusters = append(updatedClusters, map[string]interface{}{"name": clusterName})
-			}
+		if isCurrentClusterAlreadyPresent == false {
+			updatedClusters = append(updatedClusters, map[string]interface{}{"name": clusterName})
 		}
+	}
 
-		placementRuleSpecClusters["clusters"] = updatedClusters
-		placementRuleSpecClusters["clusterReplicas"] = nil
+	placementRuleSpecClusters["clusters"] = updatedClusters
+	placementRuleSpecClusters["clusterReplicas"] = nil
 
-		err = r.Client.Update(ctx, placementRule)
-		if err != nil {
-			return err
-		}
+	err = r.Client.Update(ctx, placementRule)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -441,7 +473,7 @@ func (r *ClusterGroupUpgradeReconciler) updatePlacementRuleWithClusters(
 
 func (r *ClusterGroupUpgradeReconciler) cleanupPlacementRules(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 	// Get all the placementRules associated to this upgrades CR.
-	err, placementRules := r.getPlacementRules(ctx, clusterGroupUpgrade, nil)
+	placementRules, err := r.getPlacementRules(ctx, clusterGroupUpgrade, nil)
 
 	if err != nil {
 		return err
@@ -600,16 +632,50 @@ func (r *ClusterGroupUpgradeReconciler) copyManagedInformPolicy(
 
 	// Set new policy remediationAction.
 	newPolicy.Object["spec"] = managedPolicy.Object["spec"]
+	err := r.updateConfigurationPolicyNameForCopiedPolicy(clusterGroupUpgrade, newPolicy.Object["spec"], managedPolicy.GetName())
+	if err != nil {
+		return err
+	}
+
 	specObject := newPolicy.Object["spec"].(map[string]interface{})
 	specObject["remediationAction"] = utils.RemediationActionEnforce
 
 	// Create the new policy in the desired namespace.
-	err := r.createNewPolicyFromStructure(ctx, clusterGroupUpgrade, newPolicy)
+	err = r.createNewPolicyFromStructure(ctx, clusterGroupUpgrade, newPolicy)
 	if err != nil {
 		r.Log.Info("Error creating policy", "err", err)
 		return err
 	}
 	newPolicyName = newPolicy.GetName()
+
+	return nil
+}
+
+func (r *ClusterGroupUpgradeReconciler) updateConfigurationPolicyNameForCopiedPolicy(
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, spec interface{}, managedPolicyName string) error {
+
+	specObject := spec.(map[string]interface{})
+
+	// Get the policy templates.
+	policyTemplates := specObject["policy-templates"]
+	policyTemplatesArr := policyTemplates.([]interface{})
+
+	// Go through the template array.
+	for _, template := range policyTemplatesArr {
+		// Get to the metadata name of the ConfigurationPolicy.
+		objectDefinition := template.(map[string]interface{})["objectDefinition"]
+		if objectDefinition == nil {
+			return fmt.Errorf("Policy %s is missing its spec.policy-templates.objectDefinition", managedPolicyName)
+		}
+		objectDefinitionContent := objectDefinition.(map[string]interface{})
+		metadata := objectDefinitionContent["metadata"]
+		if metadata == nil {
+			return fmt.Errorf("Policy %s is missing its spec.policy-templates.objectDefinition.metadata", managedPolicyName)
+		}
+		// Update the metadata name
+		metadataContent := metadata.(map[string]interface{})
+		metadataContent["name"] = getResourceName(clusterGroupUpgrade, metadataContent["name"].(string))
+	}
 
 	return nil
 }
@@ -621,12 +687,11 @@ func (r *ClusterGroupUpgradeReconciler) createNewPolicyFromStructure(
 		Namespace: clusterGroupUpgrade.Namespace,
 	}, policy)
 
-	if err := controllerutil.SetControllerReference(clusterGroupUpgrade, policy, r.Scheme); err != nil {
-		return err
-	}
-
 	if err != nil {
 		if errors.IsNotFound(err) {
+			if err := controllerutil.SetControllerReference(clusterGroupUpgrade, policy, r.Scheme); err != nil {
+				return err
+			}
 			err = r.Client.Create(ctx, policy)
 			if err != nil {
 				return err
@@ -875,7 +940,7 @@ func (r *ClusterGroupUpgradeReconciler) newBatchPlacementBinding(ctx context.Con
 	return u, nil
 }
 
-func (r *ClusterGroupUpgradeReconciler) getPlacementRules(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, policyName *string) (error, *unstructured.UnstructuredList) {
+func (r *ClusterGroupUpgradeReconciler) getPlacementRules(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, policyName *string) (*unstructured.UnstructuredList, error) {
 	var placementRuleLabels = map[string]string{"openshift-cluster-group-upgrades/clusterGroupUpgrade": clusterGroupUpgrade.Name}
 	if policyName != nil {
 		placementRuleLabels["openshift-cluster-group-upgrades/forPolicy"] = *policyName
@@ -892,10 +957,10 @@ func (r *ClusterGroupUpgradeReconciler) getPlacementRules(ctx context.Context, c
 		Version: "v1",
 	})
 	if err := r.List(ctx, placementRulesList, listOpts...); err != nil {
-		return err, nil
+		return nil, err
 	}
 
-	return nil, placementRulesList
+	return placementRulesList, nil
 }
 
 func (r *ClusterGroupUpgradeReconciler) getPlacementBindings(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (*unstructured.UnstructuredList, error) {
@@ -1117,8 +1182,8 @@ func (r *ClusterGroupUpgradeReconciler) buildRemediationPlan(
 	return nil
 }
 
-func getResourceName(clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, policyName string) string {
-	return clusterGroupUpgrade.Name + "-" + policyName
+func getResourceName(clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, initialString string) string {
+	return clusterGroupUpgrade.Name + "-" + initialString
 }
 
 func (r *ClusterGroupUpgradeReconciler) getAllClustersForUpgrade(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) ([]string, error) {
@@ -1271,7 +1336,7 @@ func (r *ClusterGroupUpgradeReconciler) deleteResources(ctx context.Context, clu
 
 func (r *ClusterGroupUpgradeReconciler) updateStatus(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		err, placementRules := r.getPlacementRules(ctx, clusterGroupUpgrade, nil)
+		placementRules, err := r.getPlacementRules(ctx, clusterGroupUpgrade, nil)
 		if err != nil {
 			return err
 		}
@@ -1311,6 +1376,37 @@ func (r *ClusterGroupUpgradeReconciler) updateStatus(ctx context.Context, cluste
 	}
 
 	return nil
+}
+func (r *ClusterGroupUpgradeReconciler) blockingCRsNotCompleted(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) ([]string, []string, error) {
+
+	var blockingCRsNotCompleted []string
+	var blockingCRsMissing []string
+
+	// Range through all the blocking CRs.
+	for _, blockingCR := range clusterGroupUpgrade.Spec.BlockingCRs {
+		cgu := &ranv1alpha1.ClusterGroupUpgrade{}
+		err := r.Get(ctx, types.NamespacedName{Name: blockingCR.Name, Namespace: blockingCR.Namespace}, cgu)
+
+		if err != nil {
+			r.Log.Info("[blockingCRsNotCompleted] CR not found", "name", blockingCR.Name, "error: ", err)
+			if errors.IsNotFound(err) {
+				blockingCRsMissing = append(blockingCRsMissing, blockingCR.Name)
+			} else {
+				return nil, nil, err
+			}
+		}
+
+		r.Log.Info("[blockingCRsNotCompleted] condition ", "cgu.Status.Conditions", cgu.Status.Conditions)
+		// If we find a blocking CR with a status different than "UpgradeCompleted", then we add it to the list.
+		for i := range cgu.Status.Conditions {
+			if cgu.Status.Conditions[i].Reason != "UpgradeCompleted" {
+				blockingCRsNotCompleted = append(blockingCRsNotCompleted, cgu.Name)
+			}
+		}
+	}
+
+	r.Log.Info("[blockingCRsNotCompleted]", "blockingCRs", blockingCRsNotCompleted)
+	return blockingCRsNotCompleted, blockingCRsMissing, nil
 }
 
 func (r *ClusterGroupUpgradeReconciler) validateCR(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
