@@ -515,6 +515,29 @@ func (r *ClusterGroupUpgradeReconciler) getPolicyByName(ctx context.Context, pol
 	return foundPolicy, err
 }
 
+/* getPoliciesForNamespace - util for getting a list of managedPolicies on the given namespace.
+   returns: *unstructured.UnstructuredList a list of the managedPolicies
+			error
+*/
+func (r *ClusterGroupUpgradeReconciler) getPoliciesForNamespace(
+	ctx context.Context,
+	namespace string) (*unstructured.UnstructuredList, error) {
+
+	listOpts := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+	policiesList := &unstructured.UnstructuredList{}
+	policiesList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "policy.open-cluster-management.io",
+		Kind:    "PolicyList",
+		Version: "v1",
+	})
+	if err := r.List(ctx, policiesList, listOpts...); err != nil {
+		return nil, err
+	}
+	return policiesList, nil
+}
+
 /* doManagedPoliciesExist checks that all the managedPolicies specified in the CR exist.
    returns: true/false                   if all the policies exist or not
             []string                     with the missing managed policy names
@@ -530,16 +553,8 @@ func (r *ClusterGroupUpgradeReconciler) doManagedPoliciesExist(ctx context.Conte
 
 	// Make a list with all the child policies in the cluster's namespaces.
 	for _, clusterName := range allClustersForUpgrade {
-		listOpts := []client.ListOption{
-			client.InNamespace(clusterName),
-		}
-		policiesList := &unstructured.UnstructuredList{}
-		policiesList.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   "policy.open-cluster-management.io",
-			Kind:    "PolicyList",
-			Version: "v1",
-		})
-		if err := r.List(ctx, policiesList, listOpts...); err != nil {
+		policiesList, err := r.getPoliciesForNamespace(ctx, clusterName)
+		if err != nil {
 			return false, nil, nil, err
 		}
 

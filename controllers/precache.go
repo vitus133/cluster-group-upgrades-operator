@@ -14,12 +14,37 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
+
+	policiesList, err := r.getPoliciesForNamespace(ctx, "cnfdt16-mock")
+	if err != nil {
+		return err
+	}
+
+	for _, policy := range policiesList.Items {
+		object, exists, err := unstructured.NestedFieldCopy(policy.Object, "spec", "policy-templates")
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("[reconcilePrecaching] spec -> policy-templates not found")
+		}
+		spec := object.([]interface{})[0].(map[string]interface {
+		})["objectDefinition"].(map[string]interface {
+		})["spec"].(map[string]interface{})["object-templates"].([]interface {
+		})[0].(map[string]interface{})["objectDefinition"]
+
+		r.Log.Info("[reconcilePrecaching]", "object:", spec)
+		kind := spec.(map[string]interface{})["kind"]
+		r.Log.Info("[reconcilePrecaching]", "kind:", kind)
+
+	}
 
 	if clusterGroupUpgrade.Spec.PreCaching {
 		// Pre-caching is required
@@ -35,6 +60,41 @@ func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context,
 	}
 	// No precaching required
 	return nil
+}
+
+// stripPolicy strips policy information and returns the underlying objects
+// returns: []interface{} - list of the underlying objects in the policy
+//			error
+func (r *ClusterGroupUpgradeReconciler) stripPolicy(
+	policyObject map[string]interface{}) ([]interface{}, error) {
+
+	var objects []interface{}
+
+	policyTemplates, exists, err := unstructured.NestedFieldCopy(policyObject, "spec", "policy-templates")
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("[stripPolicy] spec -> policy-templates not found")
+	}
+
+	for _, policyTemplate := range policyTemplates.([]interface{}) {
+		objTemplates := policyTemplate.(map[string]interface {
+		})["objectDefinition"].(map[string]interface {
+		})["spec"].(map[string]interface{})["object-templates"]
+		if policyTemplate == nil {
+			return nil, fmt.Errorf("[stripPolicy] can't find object-templates in policyTemplate")
+		}
+		for _, objTemplate := range objTemplates.([]interface{}) {
+			spec := objTemplate.(map[string]interface{})["objectDefinition"]
+			if spec == nil {
+				return nil, fmt.Errorf("[stripPolicy] can't find any objectDefinition")
+			}
+			objects = append(objects, spec)
+		}
+	}
+	r.Log.Info("[reconcilePrecaching]", "objects:", objects)
+	return objects, nil
 }
 
 func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
