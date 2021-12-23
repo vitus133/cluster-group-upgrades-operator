@@ -6,6 +6,7 @@ metadata:
     policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
     policy.open-cluster-management.io/standards: NIST SP 800-53
   name: policy2-common-pao-sub-policy
+  namespace: cnfdt16-mock
 spec:
   disabled: false
   policy-templates:

@@ -5,9 +5,7 @@ metadata:
     policy.open-cluster-management.io/categories: CM Configuration Management
     policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
     policy.open-cluster-management.io/standards: NIST SP 800-53
-  labels:
-    policy.open-cluster-management.io/root-policy: ""
-  name: policy1-common-cluster-version-policy
+  name: policy2-common-catsrc
   namespace: cnfdt16-mock
 spec:
   disabled: false
@@ -16,7 +14,7 @@ spec:
       apiVersion: policy.open-cluster-management.io/v1
       kind: ConfigurationPolicy
       metadata:
-        name: common-cluster-version-policy-config
+        name: common-pao-sub-policy-config
       spec:
         namespaceselector:
           exclude:
@@ -26,16 +24,13 @@ spec:
         object-templates:
         - complianceType: musthave
           objectDefinition:
-            apiVersion: config.openshift.io/v1
-            kind: ClusterVersion
+            apiVersion: operators.coreos.com/v1alpha1
+            kind: CatalogSource
             metadata:
-              name: PlatformUpgrade
+              name: redhat-operators
+              namespace: openshift-marketplace
             spec:
-              channel: "4.9"
-              desiredUpdate:
-                force: false
-                image: quay.io/openshift-release-dev/ocp-release:4.9.8-x86_64
-                version: 4.9.8
+              image: registry.redhat.io/redhat/redhat-operator-index:v4.9
         remediationAction: inform
         severity: low
   remediationAction: inform

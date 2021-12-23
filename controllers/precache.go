@@ -20,32 +20,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+type PrecachingSpec struct {
+	PlatformImage                string
+	OperatorsIndexes             []string
+	OperatorsPackagesAndChannels []string
+}
+
 func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
-	policiesList, err := r.getPoliciesForNamespace(ctx, "cnfdt16-mock")
+	spec, err := r.getPrecachingSpecFromPolicies(ctx, "cnfdt16-mock")
 	if err != nil {
-		return err
+		return nil
 	}
-
-	for _, policy := range policiesList.Items {
-		object, exists, err := unstructured.NestedFieldCopy(policy.Object, "spec", "policy-templates")
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return fmt.Errorf("[reconcilePrecaching] spec -> policy-templates not found")
-		}
-		spec := object.([]interface{})[0].(map[string]interface {
-		})["objectDefinition"].(map[string]interface {
-		})["spec"].(map[string]interface{})["object-templates"].([]interface {
-		})[0].(map[string]interface{})["objectDefinition"]
-
-		r.Log.Info("[reconcilePrecaching]", "object:", spec)
-		kind := spec.(map[string]interface{})["kind"]
-		r.Log.Info("[reconcilePrecaching]", "kind:", kind)
-
-	}
-
+	r.Log.Info("[reconcilePrecaching]", "object:", spec)
 	if clusterGroupUpgrade.Spec.PreCaching {
 		// Pre-caching is required
 		doneCondition := meta.FindStatusCondition(
@@ -62,13 +49,51 @@ func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context,
 	return nil
 }
 
+func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
+	ctx context.Context,
+	namespace string) (PrecachingSpec, error) {
+
+	var spec PrecachingSpec
+	policiesList, err := r.getPoliciesForNamespace(ctx, namespace)
+	if err != nil {
+		return spec, err
+	}
+
+	for _, policy := range policiesList.Items {
+		objects, err := r.stripPolicy(policy.Object)
+		if err != nil {
+			return spec, err
+		}
+		for _, object := range objects {
+			kind := object["kind"]
+			switch kind {
+			case "ClusterVersion":
+				spec.PlatformImage = fmt.Sprintf("%s", object["spec"].(map[string]interface {
+				})["desiredUpdate"].(map[string]interface{})["image"])
+			case "Subscription":
+				packChan := fmt.Sprintf("%s:%s", object["spec"].(map[string]interface{})["name"],
+					object["spec"].(map[string]interface{})["channel"])
+				spec.OperatorsPackagesAndChannels = append(spec.OperatorsPackagesAndChannels, packChan)
+				continue
+			case "CatalogSource":
+				spec.OperatorsIndexes = append(spec.OperatorsIndexes, fmt.Sprintf(
+					"%s", object["spec"].(map[string]interface{})["image"]))
+				continue
+			default:
+				continue
+			}
+		}
+	}
+	return spec, nil
+}
+
 // stripPolicy strips policy information and returns the underlying objects
 // returns: []interface{} - list of the underlying objects in the policy
 //			error
 func (r *ClusterGroupUpgradeReconciler) stripPolicy(
-	policyObject map[string]interface{}) ([]interface{}, error) {
+	policyObject map[string]interface{}) ([]map[string]interface{}, error) {
 
-	var objects []interface{}
+	var objects []map[string]interface{}
 
 	policyTemplates, exists, err := unstructured.NestedFieldCopy(policyObject, "spec", "policy-templates")
 	if err != nil {
@@ -90,10 +115,9 @@ func (r *ClusterGroupUpgradeReconciler) stripPolicy(
 			if spec == nil {
 				return nil, fmt.Errorf("[stripPolicy] can't find any objectDefinition")
 			}
-			objects = append(objects, spec)
+			objects = append(objects, spec.(map[string]interface{}))
 		}
 	}
-	r.Log.Info("[reconcilePrecaching]", "objects:", objects)
 	return objects, nil
 }
 
