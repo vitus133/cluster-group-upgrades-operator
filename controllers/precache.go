@@ -28,15 +28,11 @@ type PrecachingSpec struct {
 
 func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
-	spec, err := r.getPrecachingSpecFromPolicies(ctx, "cnfdt16-mock")
-	if err != nil {
-		return nil
-	}
-	r.Log.Info("[reconcilePrecaching]", "object:", spec)
 	if clusterGroupUpgrade.Spec.PreCaching {
 		// Pre-caching is required
 		doneCondition := meta.FindStatusCondition(
 			clusterGroupUpgrade.Status.Conditions, "PrecachingDone")
+		r.Log.Info("[reconcilePrecaching]", "FindStatusCondition  PrecachingDone", doneCondition)
 		if doneCondition != nil && doneCondition.Status == metav1.ConditionTrue {
 			// Precaching is done
 			return nil
@@ -133,6 +129,12 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 		Reason:  "PrecachingRequired",
 		Message: "Precaching is not completed (required)"})
 
+	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+		Type:    "PrecachingDone",
+		Status:  metav1.ConditionFalse,
+		Reason:  "PrecachingRequired",
+		Message: "Precaching is required"})
+
 	clusterState := make(map[string]string)
 	for _, cluster := range clusters {
 		clusterCreds, err := r.getManagedClusterCredentials(ctx, cluster)
@@ -184,6 +186,11 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Conte
 			Status:  metav1.ConditionFalse,
 			Reason:  "UpgradeNotStarted",
 			Message: "Precaching is completed"})
+		meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "PrecachingDone",
+			Status:  metav1.ConditionTrue,
+			Reason:  "PrecachingCompleted",
+			Message: "Precaching is completed"})
 	}
 	return nil
 }
@@ -230,7 +237,10 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	}
 	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheimagePullSpec for ",
 		cluster, "status", "success")
-	var deadline int64 = 14400 // TODO: Remove after removing from precache workload image
+	// var deadline int64 = 14400
+
+	deadlineInt := clusterGroupUpgrade.Spec.RemediationStrategy.Timeout
+	var deadline int64 = int64(deadlineInt)
 	err = r.createPrecacheJob(ctx, clientset, image, deadline)
 	if err != nil {
 		return err
@@ -546,35 +556,6 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheimagePullSpec(
 	return image, nil
 }
 
-func (r *ClusterGroupUpgradeReconciler) getPrecachePlatformImageForCluster(
-	ctx context.Context, clusterName string) (string, error) {
-
-	// TODO: implement getting platform image from managed policies
-	return "", fmt.Errorf("getPrecachePlatformImageForCluster - not implemented." +
-		"Please use 'cluster-group-upgrade-overrides' config map" +
-		"to define 'platform.image'")
-}
-
-func (r *ClusterGroupUpgradeReconciler) getPrecacheOperatorIndexesForCluster(
-	ctx context.Context, clusterName string) (string, error) {
-
-	// TODO: implement getting operator indexes from managed policies
-	return "",
-		fmt.Errorf("getPrecacheOperatorIndexesForCluster - not implemented." +
-			"Please use 'cluster-group-upgrade-overrides' config map" +
-			"to define 'operators.indexes'")
-}
-
-func (r *ClusterGroupUpgradeReconciler) getPrecacheOperatorPackagesForCluster(
-	ctx context.Context, clusterName string) (string, error) {
-
-	// TODO: implement getting operator indexes from managed policies
-	return "",
-		fmt.Errorf("getPrecacheOperatorPackagesForCluster - not implemented." +
-			"Please use 'cluster-group-upgrade-overrides' config map" +
-			"to define 'operators.packagesAndChannels'")
-}
-
 // getPrecacheSoftwareSpec: Get precaching payload spec for a cluster. It consists of
 //    	several parts that together compose the precaching workload API:
 //			1. platform.image (e.g. "quay.io/openshift-release-dev/ocp-release:<tag>").
@@ -587,6 +568,13 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, clusterName string) (
 	map[string]string, error) {
 
+	// TODO: remove mock
+	spec, err := r.getPrecachingSpecFromPolicies(ctx, "cnfdt16-mock")
+	if err != nil {
+		return nil, err
+	}
+	r.Log.Info("[getPrecacheSoftwareSpec]", "PrecacheSoftwareSpec:", spec)
+
 	rv := make(map[string]string)
 	overrides, err := r.getOperatorConfigOverrides(ctx, clusterGroupUpgrade)
 	if err != nil {
@@ -597,28 +585,20 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	operatorsIndexes := overrides["operators.indexes"]
 	operatorsPackagesAndChannels := overrides["operators.packagesAndChannels"]
 	if platformImage == "" {
-		platformImage, err = r.getPrecachePlatformImageForCluster(ctx, clusterName)
-		if err != nil {
-			r.Log.Error(err, "getPrecachePlatformImageForCluster failed")
-			return rv, err
-		}
+		platformImage = spec.PlatformImage
 	}
 	rv["platform.image"] = platformImage
 
 	if operatorsIndexes == "" {
-		operatorsIndexes, err = r.getPrecacheOperatorIndexesForCluster(ctx, clusterName)
-		if err != nil {
-			r.Log.Error(err, "getPrecacheOperatorIndexesForCluster failed")
-			return rv, err
+		for _, entry := range spec.OperatorsIndexes {
+			operatorsIndexes = fmt.Sprintln(operatorsIndexes, entry)
 		}
 	}
 	rv["operators.indexes"] = operatorsIndexes
 
 	if operatorsPackagesAndChannels == "" {
-		operatorsPackagesAndChannels, err = r.getPrecacheOperatorPackagesForCluster(ctx, clusterName)
-		if err != nil {
-			r.Log.Error(err, "getPrecacheOperatorPackagesForCluster failed")
-			return rv, err
+		for _, entry := range spec.OperatorsPackagesAndChannels {
+			operatorsPackagesAndChannels = fmt.Sprintln(operatorsPackagesAndChannels, entry)
 		}
 	}
 	rv["operators.packagesAndChannels"] = operatorsPackagesAndChannels
