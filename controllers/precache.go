@@ -309,7 +309,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 		cluster, "status", "success")
 
 	deadlineInt := clusterGroupUpgrade.Spec.RemediationStrategy.Timeout
-	var deadline int64 = int64(deadlineInt)
+	var deadline int64 = int64(deadlineInt * 60)
 	err = r.createPrecacheJob(ctx, clientset, image, deadline)
 	if err != nil {
 		return err
