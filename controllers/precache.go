@@ -82,6 +82,21 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(
 	for _, cluster := range clusters {
 		clusterCreds, err := r.getManagedClusterCredentials(ctx, cluster)
 		if err != nil {
+			if errors.IsNotFound(err) {
+				clusterState[cluster] = utils.PrecacheFailedToStart
+				msg := fmt.Sprintf("%s namespace must have '%s-admin-kubeconfig' "+
+					"secret. It is automatically created by the advanced cluster management "+
+					"during the cluster installation", cluster, cluster)
+				r.Log.Info("[updatePrecachingStatus]", "status", utils.PrecacheFailedToStart,
+					"cluster", cluster, "reason", "KubeconfigNotFound", "message", msg)
+				meta.SetStatusCondition(
+					&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+						Type:    "PrecachingCanStart",
+						Status:  metav1.ConditionFalse,
+						Reason:  "ClusterCredentialsMissing",
+						Message: msg})
+				continue
+			}
 			return err
 		}
 		clientset, err := r.getSpokeClientset(clusterCreds)
@@ -115,6 +130,22 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(
 	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
 	clusterGroupUpgrade.Status.PrecacheStatus = clusterState
 
+	// Handle utils.PrecacheFailedToStart alleviation
+	if func() bool {
+		for _, state := range clusterState {
+			if state == utils.PrecacheFailedToStart {
+				return false
+			}
+		}
+		return true
+	}() {
+		if meta.IsStatusConditionPresentAndEqual(
+			clusterGroupUpgrade.Status.Conditions, "PrecachingCanStart", metav1.ConditionFalse) {
+			meta.RemoveStatusCondition(&clusterGroupUpgrade.Status.Conditions, "PrecachingCanStart")
+		}
+	}
+
+	// Handle completion
 	if func() bool {
 		for _, state := range clusterState {
 			if state != utils.PrecacheSucceeded {
@@ -123,7 +154,6 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(
 		}
 		return true
 	}() {
-		// Handle completion
 		meta.SetStatusCondition(
 			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
 				Type:    "Ready",
@@ -136,6 +166,7 @@ func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(
 				Status:  metav1.ConditionTrue,
 				Reason:  "PrecachingCompleted",
 				Message: "Precaching is completed"})
+		meta.RemoveStatusCondition(&clusterGroupUpgrade.Status.Conditions, "PrecacheSpecValid")
 	}
 	return nil
 }
