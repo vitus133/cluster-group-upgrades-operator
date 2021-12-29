@@ -30,35 +30,150 @@ type precachingSpec struct {
 	OperatorsPackagesAndChannels []string
 }
 
-func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
+// reconcilePrecaching: main precaching loop function
+// returns: 			error
+func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(
+	ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
 	if clusterGroupUpgrade.Spec.PreCaching {
 		// Pre-caching is required
 		doneCondition := meta.FindStatusCondition(
 			clusterGroupUpgrade.Status.Conditions, "PrecachingDone")
-		r.Log.Info("[reconcilePrecaching]", "FindStatusCondition  PrecachingDone", doneCondition)
+		r.Log.Info("[reconcilePrecaching]",
+			"FindStatusCondition  PrecachingDone", doneCondition)
 		if doneCondition != nil && doneCondition.Status == metav1.ConditionTrue {
 			// Precaching is done
 			return nil
 		}
-		// Precaching is required and not done
+		// Precaching is required and not marked as done
 		return r.updatePrecachingStatus(ctx, clusterGroupUpgrade)
 	}
 	// No precaching required
 	return nil
 }
 
+// updatePrecachingStatus: iterates over clusters and checks precaching status
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(
+	ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
+
+	clusters, err := r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
+	if err != nil {
+		return fmt.Errorf("cannot obtain the CGU cluster list: %s", err)
+	}
+
+	meta.SetStatusCondition(
+		&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "PrecachingRequired",
+			Message: "Precaching is not completed (required)"})
+
+	meta.SetStatusCondition(
+		&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "PrecachingDone",
+			Status:  metav1.ConditionFalse,
+			Reason:  "PrecachingNotDone",
+			Message: "Precaching is required and not done"})
+
+	clusterState := make(map[string]string)
+	for _, cluster := range clusters {
+		clusterCreds, err := r.getManagedClusterCredentials(ctx, cluster)
+		if err != nil {
+			return err
+		}
+		clientset, err := r.getSpokeClientset(clusterCreds)
+		if err != nil {
+			return err
+		}
+		jobStatus, err := r.getPrecacheJobState(ctx, clientset)
+		if err != nil {
+			return err
+		}
+
+		clusterState[cluster] = jobStatus
+		if len(clusterGroupUpgrade.Status.PrecacheStatus) == 0 && jobStatus == utils.PrecachePartiallyDone {
+			// This condition means that there is a pre-cache job created on the previous
+			// mtce window, but there was not enough time to complete it. The CGU was
+			// deleted and re-created. In this case we delete the job and create it again
+			r.deletePrecacheJob(ctx, clientset)
+			if err != nil {
+				return err
+			}
+			jobStatus = utils.PrecacheNotStarted
+		}
+		if jobStatus == utils.PrecacheNotStarted {
+			err = r.deployPrecachingWorkload(ctx, clientset, clusterGroupUpgrade, cluster)
+			if err != nil {
+				return err
+			}
+			clusterState[cluster] = utils.PrecacheStarting
+		}
+	}
+	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
+	clusterGroupUpgrade.Status.PrecacheStatus = clusterState
+
+	if func() bool {
+		for _, state := range clusterState {
+			if state != utils.PrecacheSucceeded {
+				return false
+			}
+		}
+		return true
+	}() {
+		// Handle completion
+		meta.SetStatusCondition(
+			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionFalse,
+				Reason:  "UpgradeNotStarted",
+				Message: "Precaching is completed"})
+		meta.SetStatusCondition(
+			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+				Type:    "PrecachingDone",
+				Status:  metav1.ConditionTrue,
+				Reason:  "PrecachingCompleted",
+				Message: "Precaching is completed"})
+	}
+	return nil
+}
+
+// getPrecachingSpecFromPolicies: extract the precaching spec from policies
+//		in the CGU namespace. There are three object types to look at:
+//      - ClusterVersion: release image must be specified to be pre-cached
+//      - Subscription: provides the list of operator packages and channels
+//      - CatalogSource: must be explicitly configured to be precached.
+//        All the clusters in the CGU must have same catalog source(s)
+// returns: precachingSpec, error
+
 func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 	ctx context.Context,
-	namespace string) (precachingSpec, error) {
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (precachingSpec, error) {
 
 	var spec precachingSpec
-	policiesList, err := r.getPoliciesForNamespace(ctx, namespace)
+	policiesList, err := r.getPoliciesForNamespace(ctx, clusterGroupUpgrade.GetNamespace())
 	if err != nil {
 		return spec, err
 	}
 
 	for _, policy := range policiesList.Items {
+		// Filter by explicit list in CGU
+
+		if !func(a string, list []string) bool {
+			for _, b := range list {
+				if b == a {
+					return true
+				}
+			}
+			return false
+		}(policy.GetName(), clusterGroupUpgrade.Spec.ManagedPolicies) {
+			r.Log.Info("[getPrecachingSpecFromPolicies]", "Skip policy",
+				policy.GetName(), "reason", "Not in CGU")
+			continue
+		}
+
 		objects, err := r.stripPolicy(policy.Object)
 		if err != nil {
 			return spec, err
@@ -67,16 +182,30 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 			kind := object["kind"]
 			switch kind {
 			case "ClusterVersion":
-				spec.PlatformImage = fmt.Sprintf("%s", object["spec"].(map[string]interface {
-				})["desiredUpdate"].(map[string]interface{})["image"])
+				image := object["spec"].(map[string]interface {
+				})["desiredUpdate"].(map[string]interface{})["image"]
+				if len(spec.PlatformImage) > 0 {
+					msg := fmt.Sprintf("Platform image must be set once, but %s and %s were given",
+						spec.PlatformImage, image)
+					meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+						Type:    "PrecacheSpecValid",
+						Status:  metav1.ConditionFalse,
+						Reason:  "PlatformImageConflict",
+						Message: msg})
+					return *new(precachingSpec), nil
+				}
+				spec.PlatformImage = fmt.Sprintf("%s", image)
+				r.Log.Info("[getPrecachingSpecFromPolicies]", "ClusterVersion image", image)
 			case "Subscription":
 				packChan := fmt.Sprintf("%s:%s", object["spec"].(map[string]interface{})["name"],
 					object["spec"].(map[string]interface{})["channel"])
 				spec.OperatorsPackagesAndChannels = append(spec.OperatorsPackagesAndChannels, packChan)
+				r.Log.Info("[getPrecachingSpecFromPolicies]", "Operator package:channel", packChan)
 				continue
 			case "CatalogSource":
-				spec.OperatorsIndexes = append(spec.OperatorsIndexes, fmt.Sprintf(
-					"%s", object["spec"].(map[string]interface{})["image"]))
+				index := fmt.Sprintf("%s", object["spec"].(map[string]interface{})["image"])
+				spec.OperatorsIndexes = append(spec.OperatorsIndexes, index)
+				r.Log.Info("[getPrecachingSpecFromPolicies]", "CatalogSource", index)
 				continue
 			default:
 				continue
@@ -118,83 +247,6 @@ func (r *ClusterGroupUpgradeReconciler) stripPolicy(
 		}
 	}
 	return objects, nil
-}
-
-func (r *ClusterGroupUpgradeReconciler) updatePrecachingStatus(ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
-	clusters, err := r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
-	if err != nil {
-		return fmt.Errorf("cannot obtain the CR cluster list: %s", err)
-	}
-
-	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-		Type:    "Ready",
-		Status:  metav1.ConditionFalse,
-		Reason:  "PrecachingRequired",
-		Message: "Precaching is not completed (required)"})
-
-	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-		Type:    "PrecachingDone",
-		Status:  metav1.ConditionFalse,
-		Reason:  "PrecachingNotDone",
-		Message: "Precaching is required and not done"})
-
-	clusterState := make(map[string]string)
-	for _, cluster := range clusters {
-		clusterCreds, err := r.getManagedClusterCredentials(ctx, cluster)
-		if err != nil {
-			return err
-		}
-		clientset, err := r.getSpokeClientset(clusterCreds)
-		if err != nil {
-			return err
-		}
-		jobStatus, err := r.getPrecacheJobState(ctx, clientset)
-		if err != nil {
-			return err
-		}
-
-		clusterState[cluster] = jobStatus
-		if len(clusterGroupUpgrade.Status.PrecacheStatus) == 0 && jobStatus == utils.PrecachePartiallyDone {
-			// This condition means that there is a pre-cache job created on the previous
-			// mtce window, but there was not enough time to complete it. The UOCR was
-			// deleted and re-created. In this case we delete the job and create it again
-			r.deletePrecacheJob(ctx, clientset)
-			if err != nil {
-				return err
-			}
-		}
-		if jobStatus == utils.PrecacheNotStarted {
-			err = r.deployPrecachingWorkload(ctx, clientset, clusterGroupUpgrade, cluster)
-			if err != nil {
-				return err
-			}
-			clusterState[cluster] = utils.PrecacheStarting
-		}
-	}
-	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
-	clusterGroupUpgrade.Status.PrecacheStatus = clusterState
-
-	if func() bool {
-		for _, state := range clusterState {
-			if state != utils.PrecacheSucceeded {
-				return false
-			}
-		}
-		return true
-	}() {
-		// Handle completion
-		meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "UpgradeNotStarted",
-			Message: "Precaching is completed"})
-		meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-			Type:    "PrecachingDone",
-			Status:  metav1.ConditionTrue,
-			Reason:  "PrecachingCompleted",
-			Message: "Precaching is completed"})
-	}
-	return nil
 }
 
 func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
@@ -615,7 +667,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, clusterName string) (
 	map[string]string, error) {
 
-	spec, err := r.getPrecachingSpecFromPolicies(ctx, clusterGroupUpgrade.GetNamespace())
+	spec, err := r.getPrecachingSpecFromPolicies(ctx, clusterGroupUpgrade)
 	if err != nil {
 		return nil, err
 	}
@@ -652,6 +704,8 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	return rv, err
 }
 
+// checkPreCacheSpecConsistency
+// returns: consistent (bool), message (string)
 func (r *ClusterGroupUpgradeReconciler) checkPreCacheSpecConsistency(
 	spec map[string]string) (consistent bool, message string) {
 
@@ -833,8 +887,3 @@ func (r *ClusterGroupUpgradeReconciler) deletePreCacheWorkloadClusterRoleBinding
 	return crbs.Delete(ctx, fmt.Sprintf(
 		"%s-crb", utils.PrecacheJobNamespace), metav1.DeleteOptions{})
 }
-
-// err = r.deletePrecacheJob(ctx, clientset)
-// if err != nil {
-// 	r.Log.Error(err, "deletePrecacheJob")
-// }
