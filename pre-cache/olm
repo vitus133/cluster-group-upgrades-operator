@@ -4,7 +4,7 @@ cwd="${cwd:-/opt/precache}"
 . $cwd/common
 
 podman_pull_path="${podman_pull_path:-/run/containers/0}"
-index_download_path="${index_download_path:-/cache/downloaded}"
+index_download_path="${index_download_path:-/tmp/downloaded}"
 
 
 extract_pull_spec(){

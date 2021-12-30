@@ -1,19 +1,33 @@
 #!/bin/bash
 
 container_tool="${container_tool:-podman}"
-pull_secret_path="${pull_secret_path:-/var/lib/kubelet/config.json}"
+container_tool_args=( "--root=/host/tmp" "--storage-driver=overlay" )
+pull_secret_path="${pull_secret_path:-/host/var/lib/kubelet/config.json}"
 pull_spec_file="${pull_spec_file:-/tmp/images.txt}"
 config_volume_path="${config_volume_path:-/etc/config}"
 
+
 log_debug() {
   echo "upgrades.pre-cache $(date -Iseconds) DEBUG $@"
+}
+
+copy_environment(){
+    cp -rf /host/usr/bin/* /usr/bin/
+    [[ $? -eq 0 ]] || return 1
+    cp -rf /host/usr/lib64/* /usr/lib64/
+    [[ $? -eq 0 ]] || return 1
+    cp -rf /host/usr/libexec/* /usr/libexec/
+    [[ $? -eq 0 ]] || return 1
+    cp -rf /host/etc/containers /etc/
+    [[ $? -eq 0 ]] || return 1
+    return 0
 }
 
 pull_index(){
     local index_pull_spec=$1
     local pull_secret_path=$2
     # Pull the image into the cache directory and attain the image ID
-    release_index_id=$($container_tool pull --quiet  $index_pull_spec --authfile=$pull_secret_path)
+    release_index_id=$($container_tool --root=/host/tmp --storage-driver=vfs pull --quiet  $index_pull_spec --authfile=$pull_secret_path)
     [[ $? -eq 0 ]] || return 1
     echo $release_index_id
     return 0
@@ -21,7 +35,7 @@ pull_index(){
 
 mount_index(){
     local image_id=$1
-    local image_mount=$($container_tool image mount $image_id)
+    local image_mount=$($container_tool --root=/host/tmp --storage-driver=vfs image mount $image_id)
     rv=$?
     echo $image_mount
     return $rv
@@ -29,7 +43,7 @@ mount_index(){
 
 unmount_index(){
     local image_id=$1
-    local result=$($container_tool image unmount $image_id)
+    local result=$($container_tool --root=/host/tmp --storage-driver=vfs image unmount $image_id)
     rv=$?
     echo $result
     return $rv
