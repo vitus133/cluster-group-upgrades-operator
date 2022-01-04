@@ -11,7 +11,7 @@ extract_pull_spec(){
     index_download_path=$1
     operators_spec_file=$2
     pull_spec_file=$3
-    /usr/libexec/platform-python /opt/precache/parse_index.py "${index_download_path}" "${operators_spec_file}" "${pull_spec_file}"
+    /host/usr/libexec/platform-python /opt/precache/parse_index.py "${index_download_path}" "${operators_spec_file}" "${pull_spec_file}"
     return $?
 }
 
