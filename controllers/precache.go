@@ -510,31 +510,11 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheJobState(
 func (r *ClusterGroupUpgradeReconciler) makeContainerMounts() *[]corev1.VolumeMount {
 	var mounts []corev1.VolumeMount = []corev1.VolumeMount{
 		{
-			Name:      "varlibcontainers",
-			MountPath: "/var/lib/containers",
-		}, {
-			Name:      "pull",
-			MountPath: "/var/lib/kubelet/config.json",
-			ReadOnly:  true,
+			Name:      "host",
+			MountPath: "/host",
 		}, {
 			Name:      "config-volume",
 			MountPath: "/etc/config",
-			ReadOnly:  true,
-		}, {
-			Name:      "registries",
-			MountPath: "/etc/containers/registries.conf",
-			ReadOnly:  true,
-		}, {
-			Name:      "policy",
-			MountPath: "/etc/containers/policy.json",
-			ReadOnly:  true,
-		}, {
-			Name:      "etcdocker",
-			MountPath: "/etc/docker",
-			ReadOnly:  true,
-		}, {
-			Name:      "usr",
-			MountPath: "/usr",
 			ReadOnly:  true,
 		},
 	}
@@ -545,7 +525,6 @@ func (r *ClusterGroupUpgradeReconciler) makeContainerMounts() *[]corev1.VolumeMo
 // returns: *[]corev1.Volume - volume list pointer
 func (r *ClusterGroupUpgradeReconciler) makePodVolumes() *[]corev1.Volume {
 	dirType := corev1.HostPathDirectory
-	fileType := corev1.HostPathFile
 	var volumes []corev1.Volume = []corev1.Volume{
 		{
 			Name: "config-volume",
@@ -557,51 +536,11 @@ func (r *ClusterGroupUpgradeReconciler) makePodVolumes() *[]corev1.Volume {
 				},
 			},
 		}, {
-			Name: "varlibcontainers",
+			Name: "host",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/containers",
+					Path: "/",
 					Type: &dirType,
-				},
-			},
-		}, {
-			Name: "registries",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/containers/registries.conf",
-					Type: &fileType,
-				},
-			},
-		}, {
-			Name: "policy",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/containers/policy.json",
-					Type: &fileType,
-				},
-			},
-		}, {
-			Name: "etcdocker",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/docker",
-					Type: &dirType,
-				},
-			},
-		}, {
-			Name: "usr",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/usr",
-					Type: &dirType,
-				},
-			},
-		}, {
-			Name: "pull",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/kubelet/config.json",
-					Type: &fileType,
 				},
 			},
 		},
