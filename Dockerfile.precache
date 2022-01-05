@@ -1,12 +1,12 @@
 FROM registry.access.redhat.com/ubi8-minimal:latest
-RUN mkdir /opt/precache
+RUN mkdir /opt/precache &&microdnf install vim
 COPY pre-cache/release \
      pre-cache/common \
      pre-cache/olm \
      pre-cache/parse_index.py \
      pre-cache/pull \
      pre-cache/precache.sh \
-     pre-cache/copy-bin.sh \
+     pre-cache/copy-env.sh \
      /opt/precache
 COPY pre-cache/storage.conf /etc/containers/
 ENV PATH="/opt/precache:/host/usr/bin:/host/usr/libexec:${PATH}"

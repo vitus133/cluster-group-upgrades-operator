@@ -1,5 +1,14 @@
 #!/bin/bash
-/opt/precache/copy-bin.sh
+
+set -e
+
+# Pull spec extraction is done in the container due to opm<->selinux issues
+/opt/precache/copy-env.sh
 /opt/precache/release
 /opt/precache/olm 
-/opt/precache/pull
+
+# Image pull is done on the hist via chroot
+cp /tmp/images.txt /host/tmp/
+rm -rf /host/tmp/precache
+cp -a /opt/precache /host/tmp/
+chroot /host /tmp/precache/pull

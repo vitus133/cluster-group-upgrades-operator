@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cwd="${cwd:-/opt/precache}"
+cwd="${cwd:-/tmp/precache}"
 . $cwd/common
 
 mirror_images() {
@@ -13,7 +13,7 @@ mirror_images() {
         img="${line%\"}"
         img="${img#\"}"
 
-        $container_tool --remote --url unix:/host/var/run/podman/podman.sock image exists $img
+        $container_tool image exists $img
         if [[ $? == 0 ]]; then
             log_debug "Skipping existing image $img"
             continue
@@ -22,7 +22,7 @@ mirror_images() {
         iterations=10
         until [[ $success -eq 1 ]] || [[ $iterations -eq 0 ]]
         do
-            $container_tool --remote --url unix:/host/var/run/podman/podman.sock pull $img --authfile=$pull_secret_path
+            $container_tool  pull $img
             if [[ $? == 0 ]]; then
                 success=1
             fi
