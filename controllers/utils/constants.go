@@ -36,6 +36,7 @@ const (
 	PrecacheSpecCmName         = "pre-cache-spec"
 	PrecacheNotStarted         = "NotStarted"
 	PrecacheStarting           = "Starting"
+	PrecacheRestarting         = "Restarting"
 	PrecacheFailedToStart      = "FailedToStart"
 	PrecacheActive             = "Active"
 	PrecacheSucceeded          = "Succeeded"
