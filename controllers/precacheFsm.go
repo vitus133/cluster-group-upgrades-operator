@@ -56,78 +56,15 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 		switch currentState {
 		// Initial State
 		case PrecacheStateNotStarted:
-			// Check for continuation of the previous mtce window
-			_, exists, err := r.getView(ctx, "view-precache-job", cluster)
-			if err != nil {
-				return err
-			}
-			if exists {
-				// This condition means CR has been deleted and created again
-				// We clean up and create view resources again since they are
-				// updating periodically and might be outdated
-				err = r.cleanupHubResources(ctx, cluster)
-				nextState = PrecacheStateNotStarted
-				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "view-precache-job exists",
-					"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
-			} else {
-				data := templateData{
-					Cluster: cluster,
-				}
-				err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
-				nextState = PrecacheStateStarting
-				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "view-precache-job does not exist",
-					"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", nextState)
-
-			}
+			nextState, err = r.handleNotStarted(ctx, cluster)
 			if err != nil {
 				return err
 			}
 		case PrecacheStateStarting:
-			condition, err := r.getPrecacheCondition(ctx, cluster)
+			nextState, err = r.handleStarting(ctx, clusterGroupUpgrade, cluster)
 			if err != nil {
 				return err
 			}
-			switch condition {
-			case DependenciesNotPresent:
-				_, err := r.deployPrecachingDependencies(ctx, clusterGroupUpgrade, cluster)
-				if err != nil {
-					return err
-				}
-				nextState = currentState
-			case NoJobView:
-				data := templateData{
-					Cluster: cluster,
-				}
-				err = r.createResourcesFromTemplates(ctx, &data, precacheNSViewTemplates)
-				if err != nil {
-					return err
-				}
-				nextState = currentState
-			case NoJobFoundOnSpoke:
-				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", NoJobFoundOnSpoke,
-					"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", PrecacheStateStarting)
-				err = r.deployPrecachingWorkload(ctx, clusterGroupUpgrade, cluster)
-				if err != nil {
-					return err
-				}
-				nextState = PrecacheStateStarting
-			case PrecacheJobActive:
-				nextState = PrecacheStateActive
-			case PrecacheJobSucceeded:
-				nextState = PrecacheStateSucceeded
-			case PrecacheJobDeadline:
-				//Delete all
-				err = r.restartPrecaching(ctx, cluster)
-				if err != nil {
-					return err
-				}
-				nextState = PrecacheStateRestarting
-			case PrecacheJobBackoffLimitExceeded:
-				nextState = PrecacheStateError
-
-			}
-			r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
-				"cluster", cluster, "nextState", nextState)
 		// Restart
 		case PrecacheStateRestarting:
 			//Check no precaching NS present
@@ -172,7 +109,11 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 				nextState = PrecacheStateError
 			case PrecacheJobActive:
 				nextState = PrecacheStateActive
+			default:
+				return fmt.Errorf("[precachingFsm] unknown condition %s in %s state", condition, currentState)
 			}
+		default:
+			return fmt.Errorf("[precachingFsm] unknown state %s", currentState)
 
 		}
 
@@ -184,4 +125,97 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	clusterGroupUpgrade.Status.PrecacheStatus = clusterStates
 	r.handleCguStates(clusterGroupUpgrade)
 	return nil
+}
+
+// handleNotStarted: Handles conditions in PrecacheStateNotStarted
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
+	cluster string) (string, error) {
+
+	nextState, currentState := PrecacheStateNotStarted, PrecacheStateNotStarted
+	var condition string
+	// Check for continuation of the previous mtce window
+	_, exists, err := r.getView(ctx, "view-precache-job", cluster)
+	if err != nil {
+		return nextState, err
+	}
+	if exists {
+		// This condition means CR has been deleted and created again
+		// We clean up and create view resources again since they are
+		// updating periodically and could be outdated
+		err = r.cleanupHubResources(ctx, cluster)
+		condition = JobViewExists
+	} else {
+		data := templateData{
+			Cluster: cluster,
+		}
+		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
+		nextState = PrecacheStateStarting
+	}
+	r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
+		"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
+	if err != nil {
+		return nextState, err
+	}
+	return nextState, nil
+}
+
+// handleStarting: Handles conditions in PrecacheStateStart
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
+	cluster string) (string, error) {
+
+	nextState, currentState := PrecacheStateStarting, PrecacheStateStarting
+	var condition string
+
+	condition, err := r.getPrecacheCondition(ctx, cluster)
+	if err != nil {
+		return nextState, err
+	}
+	switch condition {
+	case DependenciesNotPresent:
+		_, err := r.deployPrecachingDependencies(ctx, clusterGroupUpgrade, cluster)
+		if err != nil {
+			return nextState, err
+		}
+
+	case NoJobView:
+		data := templateData{
+			Cluster: cluster,
+		}
+		err = r.createResourcesFromTemplates(ctx, &data, precacheNSViewTemplates)
+		if err != nil {
+			return nextState, err
+		}
+	case NoJobFoundOnSpoke:
+		r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", NoJobFoundOnSpoke,
+			"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", PrecacheStateStarting)
+		err = r.deployPrecachingWorkload(ctx, clusterGroupUpgrade, cluster)
+		if err != nil {
+			return nextState, err
+		}
+	case PrecacheJobActive:
+		nextState = PrecacheStateActive
+	case PrecacheJobSucceeded:
+		nextState = PrecacheStateSucceeded
+	case PrecacheJobDeadline:
+		//Delete all
+		err = r.restartPrecaching(ctx, cluster)
+		if err != nil {
+			return nextState, err
+		}
+		nextState = PrecacheStateRestarting
+	case PrecacheJobBackoffLimitExceeded:
+		nextState = PrecacheStateError
+
+	default:
+		return nextState, fmt.Errorf(
+			"[handleStarting] unknown condition %v in %s state", condition, currentState)
+	}
+
+	r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
+		"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
+
+	return nextState, nil
 }
