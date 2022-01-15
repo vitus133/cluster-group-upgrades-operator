@@ -107,7 +107,7 @@ func (r *ClusterGroupUpgradeReconciler) handleCguStates(
 	// Handle completion
 	if func() bool {
 		for _, state := range clusterGroupUpgrade.Status.PrecacheStatus {
-			if state != utils.PrecacheStateSucceeded {
+			if state != PrecacheStateSucceeded {
 				return false
 			}
 		}
@@ -139,26 +139,26 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheCondition(
 
 	depsPresent, err := r.checkPrecacheDependencies(ctx, cluster)
 	if err != nil {
-		return utils.PrecacheUnforeseenCondition, err
+		return PrecacheUnforeseenCondition, err
 	}
 	if !depsPresent {
-		return utils.DependenciesNotPresent, nil
+		return DependenciesNotPresent, nil
 	}
 	jobView, present, err := r.getView(ctx, "view-precache-job", cluster)
 	if err != nil {
-		return utils.PrecacheUnforeseenCondition, err
+		return PrecacheUnforeseenCondition, err
 	}
 	if !present {
-		return utils.NoJobView, nil
+		return NoJobView, nil
 	}
 	viewConditions, exists, err := unstructured.NestedSlice(
 		jobView.Object, "status", "conditions")
 	if !exists {
-		return utils.PrecacheUnforeseenCondition, fmt.Errorf(
+		return PrecacheUnforeseenCondition, fmt.Errorf(
 			"[getPrecacheCondition] no ManagedClusterView conditions found")
 	}
 	if err != nil {
-		return utils.PrecacheUnforeseenCondition, err
+		return PrecacheUnforeseenCondition, err
 	}
 	var status string
 	var message string
@@ -175,35 +175,35 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheCondition(
 	// is not yet present on the spoke.
 	if status == "False" {
 		r.Log.Info("[getPrecacheCondition]", "viewStatus", message)
-		return utils.NoJobFoundOnSpoke, nil
+		return NoJobFoundOnSpoke, nil
 	}
 
 	usJobStatus, exists, err := unstructured.NestedFieldCopy(
 		jobView.Object, "status", "result", "status")
 	if !exists {
-		return utils.PrecacheUnforeseenCondition, fmt.Errorf(
+		return PrecacheUnforeseenCondition, fmt.Errorf(
 			"[getPrecacheCondition] no job status found in ManagedClusterView")
 	}
 	if err != nil {
-		return utils.PrecacheUnforeseenCondition, err
+		return PrecacheUnforeseenCondition, err
 	}
 
 	btJobStatus, err := json.Marshal(usJobStatus)
 	if err != nil {
-		return utils.PrecacheUnforeseenCondition, err
+		return PrecacheUnforeseenCondition, err
 	}
 
 	var jobStatus v1.JobStatus
 	err = json.Unmarshal(btJobStatus, &jobStatus)
 	if err != nil {
-		return utils.PrecacheUnforeseenCondition, err
+		return PrecacheUnforeseenCondition, err
 	}
 	r.Log.Info("[getPrecacheCondition]", "cluster", cluster, "JobStatus", jobStatus)
 	if jobStatus.Active > 0 {
-		return utils.PrecacheJobActive, nil
+		return PrecacheJobActive, nil
 	}
 	if jobStatus.Succeeded > 0 {
-		return utils.PrecacheJobSucceeded, nil
+		return PrecacheJobSucceeded, nil
 	}
 
 	for _, condition := range jobStatus.Conditions {
@@ -213,15 +213,15 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheCondition(
 			if condition.Reason == "DeadlineExceeded" {
 				r.Log.Info("getPrecacheCondition", "DeadlineExceeded",
 					"Partially done")
-				return utils.PrecacheJobDeadline, nil
+				return PrecacheJobDeadline, nil
 			} else if condition.Reason == "BackoffLimitExceeded" {
-				return utils.PrecacheJobBackoffLimitExceeded, nil
+				return PrecacheJobBackoffLimitExceeded, nil
 			}
 			break
 		}
 	}
 
-	return utils.PrecacheUnforeseenCondition, fmt.Errorf(string(btJobStatus))
+	return PrecacheUnforeseenCondition, fmt.Errorf(string(btJobStatus))
 }
 
 // checkPrecacheDependencies: check all precache job dependencies

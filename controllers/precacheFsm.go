@@ -5,9 +5,35 @@ import (
 	"fmt"
 
 	ranv1alpha1 "github.com/openshift-kni/cluster-group-upgrades-operator/api/v1alpha1"
-	utils "github.com/openshift-kni/cluster-group-upgrades-operator/controllers/utils"
 )
 
+// Pre-cache states
+const (
+	PrecacheStateNotStarted = "NotStarted"
+	PrecacheStateStarting   = "Starting"
+	PrecacheStateRestarting = "Restarting"
+	PrecacheStateActive     = "Active"
+	PrecacheStateSucceeded  = "Succeeded"
+	PrecacheStateTimeout    = "PrecacheTimeout"
+	PrecacheStateError      = "UnrecoverableError"
+)
+
+// Pre-cache resources conditions
+const (
+	NoJobView                       = "NoJobView"
+	NoJobFoundOnSpoke               = "NoJobFoundOnSpoke"
+	JobViewExists                   = "JobViewExists"
+	DependenciesNotPresent          = "DependenciesNotPresent"
+	DependenciesPresent             = "DependenciesPresent"
+	PrecacheJobDeadline             = "PrecacheJobDeadline"
+	PrecacheJobSucceeded            = "PrecacheJobSucceeded"
+	PrecacheJobActive               = "PrecacheJobActive"
+	PrecacheJobBackoffLimitExceeded = "PrecacheJobBackoffLimitExceeded"
+	PrecacheUnforeseenCondition     = "UnforeseenCondition"
+)
+
+// precachingFsm: Implements the precaching state machine
+// returns: error
 func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
@@ -21,7 +47,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	for _, cluster := range clusters {
 		var currentState string
 		if len(clusterGroupUpgrade.Status.PrecacheStatus) == 0 {
-			currentState = utils.PrecacheStateNotStarted
+			currentState = PrecacheStateNotStarted
 		} else {
 			currentState = clusterGroupUpgrade.Status.PrecacheStatus[cluster]
 		}
@@ -29,7 +55,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 		r.Log.Info("[precachingFsm]", "currentState", currentState, "cluster", cluster)
 		switch currentState {
 		// Initial State
-		case utils.PrecacheStateNotStarted:
+		case PrecacheStateNotStarted:
 			// Check for continuation of the previous mtce window
 			_, exists, err := r.getView(ctx, "view-precache-job", cluster)
 			if err != nil {
@@ -40,7 +66,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 				// We clean up and create view resources again since they are
 				// updating periodically and might be outdated
 				err = r.cleanupHubResources(ctx, cluster)
-				nextState = utils.PrecacheStateNotStarted
+				nextState = PrecacheStateNotStarted
 				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "view-precache-job exists",
 					"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
 			} else {
@@ -48,7 +74,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 					Cluster: cluster,
 				}
 				err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
-				nextState = utils.PrecacheStateStarting
+				nextState = PrecacheStateStarting
 				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "view-precache-job does not exist",
 					"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", nextState)
 
@@ -56,19 +82,19 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 			if err != nil {
 				return err
 			}
-		case utils.PrecacheStateStarting:
+		case PrecacheStateStarting:
 			condition, err := r.getPrecacheCondition(ctx, cluster)
 			if err != nil {
 				return err
 			}
 			switch condition {
-			case utils.DependenciesNotPresent:
+			case DependenciesNotPresent:
 				_, err := r.deployPrecachingDependencies(ctx, clusterGroupUpgrade, cluster)
 				if err != nil {
 					return err
 				}
 				nextState = currentState
-			case utils.NoJobView:
+			case NoJobView:
 				data := templateData{
 					Cluster: cluster,
 				}
@@ -77,33 +103,33 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 					return err
 				}
 				nextState = currentState
-			case utils.NoJobFoundOnSpoke:
-				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", utils.NoJobFoundOnSpoke,
-					"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", utils.PrecacheStateStarting)
+			case NoJobFoundOnSpoke:
+				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", NoJobFoundOnSpoke,
+					"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", PrecacheStateStarting)
 				err = r.deployPrecachingWorkload(ctx, clusterGroupUpgrade, cluster)
 				if err != nil {
 					return err
 				}
-				nextState = utils.PrecacheStateStarting
-			case utils.PrecacheJobActive:
-				nextState = utils.PrecacheStateActive
-			case utils.PrecacheJobSucceeded:
-				nextState = utils.PrecacheStateSucceeded
-			case utils.PrecacheJobDeadline:
+				nextState = PrecacheStateStarting
+			case PrecacheJobActive:
+				nextState = PrecacheStateActive
+			case PrecacheJobSucceeded:
+				nextState = PrecacheStateSucceeded
+			case PrecacheJobDeadline:
 				//Delete all
 				err = r.restartPrecaching(ctx, cluster)
 				if err != nil {
 					return err
 				}
-				nextState = utils.PrecacheStateRestarting
-			case utils.PrecacheJobBackoffLimitExceeded:
-				nextState = utils.PrecacheStateError
+				nextState = PrecacheStateRestarting
+			case PrecacheJobBackoffLimitExceeded:
+				nextState = PrecacheStateError
 
 			}
 			r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
 				"cluster", cluster, "nextState", nextState)
 		// Restart
-		case utils.PrecacheStateRestarting:
+		case PrecacheStateRestarting:
 			//Check no precaching NS present
 			present, err := r.checkPrecachePresent(ctx, cluster)
 			if err != nil {
@@ -119,7 +145,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 					Cluster: cluster,
 				}
 				err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
-				nextState = utils.PrecacheStateStarting
+				nextState = PrecacheStateStarting
 				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "PrecacheNotPresent",
 					"cluster", cluster, "nextState", nextState)
 			}
@@ -128,24 +154,24 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 			}
 
 		// Final states that don't change for the life of the CR
-		case utils.PrecacheStateSucceeded, utils.PrecacheStateTimeout, utils.PrecacheStateError:
+		case PrecacheStateSucceeded, PrecacheStateTimeout, PrecacheStateError:
 			nextState = currentState
 			r.Log.Info("[precachingFsm]", "cluster", cluster, "final state", currentState)
 
-		case utils.PrecacheStateActive:
+		case PrecacheStateActive:
 			condition, err := r.getPrecacheCondition(ctx, cluster)
 			if err != nil {
 				return err
 			}
 			switch condition {
-			case utils.PrecacheJobDeadline:
-				nextState = utils.PrecacheStateTimeout
-			case utils.PrecacheJobSucceeded:
-				nextState = utils.PrecacheStateSucceeded
-			case utils.PrecacheJobBackoffLimitExceeded:
-				nextState = utils.PrecacheStateError
-			case utils.PrecacheJobActive:
-				nextState = utils.PrecacheStateActive
+			case PrecacheJobDeadline:
+				nextState = PrecacheStateTimeout
+			case PrecacheJobSucceeded:
+				nextState = PrecacheStateSucceeded
+			case PrecacheJobBackoffLimitExceeded:
+				nextState = PrecacheStateError
+			case PrecacheJobActive:
+				nextState = PrecacheStateActive
 			}
 
 		}
