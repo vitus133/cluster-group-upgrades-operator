@@ -29,12 +29,12 @@ spec:
             metadata:
               name: PlatformUpgrade
             spec:
-              channel: "4.10"
+              channel: "4.11"
               upstream: upstream
               desiredUpdate:
                 force: false
-                version: "4.10"
-                image: quay.io/openshift-release-dev/ocp-release:4.9.6-x86_64
+                version: "4.11"
+                image: quay.io/openshift-release-dev/ocp-release:4.9.11-x86_64
         remediationAction: inform
         severity: low
   remediationAction: inform

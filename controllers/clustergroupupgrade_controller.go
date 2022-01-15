@@ -85,14 +85,24 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
+	nextReconcile := ctrl.Result{}
 	err = r.reconcilePrecaching(ctx, clusterGroupUpgrade)
 	if err != nil {
 		r.Log.Error(err, "reconcilePrecaching error")
 		return ctrl.Result{}, err
 	}
+	for _, v := range clusterGroupUpgrade.Status.PrecacheStatus {
+		if v == "Starting" {
+			requeueAfter := 5 * time.Second
+			nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
+			err = r.Status().Update(ctx, clusterGroupUpgrade)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			return nextReconcile, nil
+		}
+	}
 
-	nextReconcile := ctrl.Result{}
 	readyCondition := meta.FindStatusCondition(clusterGroupUpgrade.Status.Conditions, "Ready")
 
 	if readyCondition == nil {
@@ -105,7 +115,7 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 		})
 	} else if readyCondition.Status == metav1.ConditionFalse {
 		if readyCondition.Reason == "PrecachingRequired" {
-			requeueAfter := 30 * time.Minute
+			requeueAfter := 5 * time.Minute
 			nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
 		} else if readyCondition.Reason == "UpgradeNotStarted" || readyCondition.Reason == "UpgradeCannotStart" {
 			// Before starting the upgrade check that all the managed policies exist.
