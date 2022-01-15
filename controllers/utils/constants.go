@@ -35,28 +35,3 @@ const (
 	PrecacheServiceAccountName = "pre-cache-agent"
 	PrecacheSpecCmName         = "pre-cache-spec"
 )
-
-// Pre-cache states
-const (
-	PrecacheStateNotStarted = "NotStarted"
-	PrecacheStateStarting   = "Starting"
-	PrecacheStateRestarting = "Restarting"
-	PrecacheStateActive     = "Active"
-	PrecacheStateSucceeded  = "Succeeded"
-	PrecacheStateTimeout    = "PrecacheTimeout"
-	PrecacheStateError      = "UnrecoverableError"
-)
-
-// Pre-cache job conditions
-const (
-	NoJobView                       = "NoJobView"
-	NoJobFoundOnSpoke               = "NoJobFoundOnSpoke"
-	JobViewExists                   = "JobViewExists"
-	DependenciesNotPresent          = "DependenciesNotPresent"
-	DependenciesPresent             = "DependenciesPresent"
-	PrecacheJobDeadline             = "PrecacheJobDeadline"
-	PrecacheJobSucceeded            = "PrecacheJobSucceeded"
-	PrecacheJobActive               = "PrecacheJobActive"
-	PrecacheJobBackoffLimitExceeded = "PrecacheJobBackoffLimitExceeded"
-	PrecacheUnforeseenCondition     = "UnforeseenCondition"
-)
