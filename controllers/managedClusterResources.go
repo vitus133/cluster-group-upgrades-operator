@@ -1,5 +1,5 @@
 /*
-Copyright 2021.
+Copyright 2022.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -189,70 +189,6 @@ func (r *ClusterGroupUpgradeReconciler) getView(
 		return view, false, err
 	}
 	return view, true, nil
-}
-
-func (r *ClusterGroupUpgradeReconciler) checkPrecacheNsPresent(
-	ctx context.Context,
-	cluster string) (bool, error) {
-
-	// Wait for pre-cache namespace deletion on the spoke
-	view, available, err := r.getView(ctx, "view-precache-namespace", cluster)
-	if err != nil {
-		return false, err
-	}
-	if !available {
-		return false, fmt.Errorf("[checkPrecacheNsPresent] no view resource available")
-	}
-	return r.managedResourceAvailable(ctx, view)
-	// if err != nil {
-	// 	return false, utils.PrecacheStateRestarting, err
-	// }
-	// if !available {
-	// 	//Namespace is deleted - delete its view
-	// 	err = r.deleteManagedClusterViewResource(ctx, "view-precache-namespace", cluster)
-	// 	if err != nil {
-	// 		return false, utils.PrecacheStateRestarting, nil
-	// 	}
-	// } else {
-	// 	return true, utils.PrecacheStateRestarting, nil
-	// }
-	// return createDependencies(r, ctx, clusterGroupUpgrade, cluster, condition)
-}
-
-// managedResourceAvailable - checks the view underlying resource
-//      is available and being watched
-// returns:   available (bool)
-//            error
-func (r *ClusterGroupUpgradeReconciler) managedResourceAvailable(
-	ctx context.Context, view *unstructured.Unstructured) (bool, error) {
-	// Looking for this:
-	// status:
-	// 	conditions:
-	// 	- lastTransitionTime: ...
-	// 		status: "True"
-	// 		type: Processing
-	var message, status string
-	viewConditions, exists, err := unstructured.NestedSlice(
-		view.Object, "status", "conditions")
-	if !exists {
-		message = "[managedResourceAvailable] no ManagedClusterView conditions found"
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	for _, condition := range viewConditions {
-		if condition.(map[string]interface{})["type"] == "Processing" {
-			status = condition.(map[string]interface{})["status"].(string)
-			message = condition.(map[string]interface{})["message"].(string)
-			break
-		}
-	}
-	r.Log.Info("[managedResourceAvailable]", "status", status, "message", message)
-	if status != "True" {
-		return false, nil
-	}
-	return true, nil
 }
 
 // renderYamlTemplate: renders a single resource from the yaml template

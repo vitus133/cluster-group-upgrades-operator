@@ -26,28 +26,6 @@ type precachingSpec struct {
 	OperatorsPackagesAndChannels []string
 }
 
-func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
-	ctx context.Context,
-	cluster string) error {
-
-	// 1. delete the precaching namespace on the spoke and
-	//    job-view resource on the hub:
-	err := r.undeployPrecachingWorkload(ctx, cluster)
-	if err != nil {
-		return err
-	}
-	// 2. deploy the spoke pre-cache view resource to watch for
-	//    the the namespace delete completion
-	spec := templateData{
-		Cluster: cluster,
-	}
-	err = r.createResourcesFromTemplates(ctx, &spec, precacheNSViewTemplates)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // reconcilePrecaching: main precaching loop function
 // returns: 			error
 func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(
@@ -71,23 +49,8 @@ func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(
 	return nil
 }
 
-func (r *ClusterGroupUpgradeReconciler) setPrecachingRequiredConditions(
-	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) {
-	meta.SetStatusCondition(
-		&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "PrecachingRequired",
-			Message: "Precaching is not completed (required)"})
-
-	meta.SetStatusCondition(
-		&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-			Type:    "PrecachingDone",
-			Status:  metav1.ConditionFalse,
-			Reason:  "PrecachingNotDone",
-			Message: "Precaching is required and not done"})
-}
-
+// restartPrecaching: Restart precaching on the cluster
+// returns: error
 func (r *ClusterGroupUpgradeReconciler) cleanupHubResources(ctx context.Context, cluster string) error {
 	// Cleanup all existing view objects that might have been left behind
 	// in case of a crash etc.
@@ -98,6 +61,30 @@ func (r *ClusterGroupUpgradeReconciler) cleanupHubResources(ctx context.Context,
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// restartPrecaching: Restart precaching on the cluster
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
+	ctx context.Context,
+	cluster string) error {
+
+	// 1. delete the precaching namespace on the spoke and
+	//    job-view resource on the hub:
+	err := r.undeployPrecachingWorkload(ctx, cluster)
+	if err != nil {
+		return err
+	}
+	// 2. deploy the spoke pre-cache view resource to watch for
+	//    the the namespace delete completion
+	spec := templateData{
+		Cluster: cluster,
+	}
+	err = r.createResourcesFromTemplates(ctx, &spec, precacheNSViewTemplates)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -587,6 +574,56 @@ func (r *ClusterGroupUpgradeReconciler) checkPreCacheSpecConsistency(
 		return false, "inconsistent precaching configuration: no software spec provided"
 	}
 	return true, ""
+}
+func (r *ClusterGroupUpgradeReconciler) checkPrecacheNsPresent(
+	ctx context.Context,
+	cluster string) (bool, error) {
+
+	// Wait for pre-cache namespace deletion on the spoke
+	view, available, err := r.getView(ctx, "view-precache-namespace", cluster)
+	if err != nil {
+		return false, err
+	}
+	if !available {
+		return false, fmt.Errorf("[checkPrecacheNsPresent] no view resource available")
+	}
+	return r.managedResourceAvailable(ctx, view)
+}
+
+// managedResourceAvailable - checks the view underlying resource
+//      is available and being watched
+// returns:   available (bool)
+//            error
+func (r *ClusterGroupUpgradeReconciler) managedResourceAvailable(
+	ctx context.Context, view *unstructured.Unstructured) (bool, error) {
+	// Looking for this:
+	// status:
+	// 	conditions:
+	// 	- lastTransitionTime: ...
+	// 		status: "True"
+	// 		type: Processing
+	var message, status string
+	viewConditions, exists, err := unstructured.NestedSlice(
+		view.Object, "status", "conditions")
+	if !exists {
+		message = "[managedResourceAvailable] no ManagedClusterView conditions found"
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, condition := range viewConditions {
+		if condition.(map[string]interface{})["type"] == "Processing" {
+			status = condition.(map[string]interface{})["status"].(string)
+			message = condition.(map[string]interface{})["message"].(string)
+			break
+		}
+	}
+	r.Log.Info("[managedResourceAvailable]", "status", status, "message", message)
+	if status != "True" {
+		return false, nil
+	}
+	return true, nil
 }
 
 // precachingCleanup: delete all precaching jobs

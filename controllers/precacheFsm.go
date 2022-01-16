@@ -1,3 +1,19 @@
+/*
+Copyright 2022.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package controllers
 
 import (
@@ -39,7 +55,7 @@ const (
 func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
-	r.setPrecachingRequiredConditions(clusterGroupUpgrade)
+	r.setPrecachingRequired(clusterGroupUpgrade)
 	clusters, err := r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
 	if err != nil {
 		return fmt.Errorf("cannot obtain the CGU cluster list: %s", err)
@@ -96,7 +112,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	}
 	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
 	clusterGroupUpgrade.Status.PrecacheStatus = clusterStates
-	r.handleAlleviation(clusterGroupUpgrade)
+	r.checkPrecachingCompleted(clusterGroupUpgrade)
 	return nil
 }
 
@@ -126,7 +142,7 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 		nextState = PrecacheStateStarting
 	}
 	r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
-		"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
+		"cluster", cluster, "nextState", nextState)
 	if err != nil {
 		return nextState, err
 	}
@@ -187,8 +203,8 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 			"[handleStarting] unknown condition %v in %s state", condition, currentState)
 	}
 
-	r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
-		"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
+	r.Log.Info("[precachingFsm]", "cluster", cluster, "currentState", currentState,
+		"condition", condition, "nextState", nextState)
 
 	return nextState, nil
 }
@@ -249,8 +265,25 @@ func (r *ClusterGroupUpgradeReconciler) handleActive(ctx context.Context,
 	return nextState, nil
 }
 
-// handleAlleviation: handle alleviation of conditions related to all clusters
-func (r *ClusterGroupUpgradeReconciler) handleAlleviation(
+func (r *ClusterGroupUpgradeReconciler) setPrecachingRequired(
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) {
+	meta.SetStatusCondition(
+		&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "PrecachingRequired",
+			Message: "Precaching is not completed (required)"})
+
+	meta.SetStatusCondition(
+		&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "PrecachingDone",
+			Status:  metav1.ConditionFalse,
+			Reason:  "PrecachingNotDone",
+			Message: "Precaching is required and not done"})
+}
+
+// checkPrecachingCompleted: handle alleviation of conditions related to all clusters
+func (r *ClusterGroupUpgradeReconciler) checkPrecachingCompleted(
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) {
 	// Handle completion
 	if func() bool {
