@@ -328,12 +328,13 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	}
 	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheJobTemplateData",
 		cluster, "status", "success")
-
-	err = r.createResourcesFromTemplates(ctx, spec, precacheCreateTemplates)
+	// Delete the job view so it is refreshed
+	err = r.deleteManagedClusterViewResource(ctx, "view-precache-job", cluster)
 	if err != nil {
 		return err
 	}
-	err = r.deletePrecacheDependenciesView(ctx, cluster)
+
+	err = r.createResourcesFromTemplates(ctx, spec, precacheCreateTemplates)
 	if err != nil {
 		return err
 	}

@@ -186,6 +186,10 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 			return nextState, err
 		}
 	case PrecacheJobActive:
+		err = r.deletePrecacheDependenciesView(ctx, cluster)
+		if err != nil {
+			return currentState, err
+		}
 		nextState = PrecacheStateActive
 	case PrecacheJobSucceeded:
 		nextState = PrecacheStateSucceeded
