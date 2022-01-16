@@ -93,9 +93,9 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	for _, v := range clusterGroupUpgrade.Status.PrecacheStatus {
 		if v == "Starting" {
-			requeueAfter := 5 * time.Second
+			requeueAfter := 20 * time.Second
 			nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}
-			err = r.Status().Update(ctx, clusterGroupUpgrade)
+			err = r.updateStatus(ctx, clusterGroupUpgrade)
 			if err != nil {
 				return ctrl.Result{}, err
 			}

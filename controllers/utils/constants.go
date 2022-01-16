@@ -35,3 +35,7 @@ const (
 	PrecacheServiceAccountName = "pre-cache-agent"
 	PrecacheSpecCmName         = "pre-cache-spec"
 )
+
+// When configuring managedclusterview for clusters in precache-starting state,
+// this value is multiplied by number of clusters
+const ViewUpdateSec = 20

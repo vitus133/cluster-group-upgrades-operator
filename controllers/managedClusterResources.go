@@ -42,6 +42,7 @@ type templateData struct {
 	Operators               operatorsData
 	PrecachingWorkloadImage string
 	PrecachingJobTimeout    uint64
+	ViewUpdateIntervalSec   int
 }
 
 type operatorsData struct {
@@ -378,7 +379,7 @@ spec:
     resource: jobs
     name: pre-cache
     namespace: pre-cache
-    updateIntervalSeconds: 120
+    updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
 const mngClusterViewConfigMap string = `
@@ -389,7 +390,7 @@ spec:
     resource: configmap
     name: pre-cache-spec
     namespace: pre-cache
-    updateIntervalSeconds: 120
+    updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
 const mngClusterViewServiceAcct string = `
@@ -400,7 +401,7 @@ spec:
     resource: serviceaccounts
     name: pre-cache-agent
     namespace: pre-cache
-    updateIntervalSeconds: 120
+    updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
 const mngClusterViewClusterRoleBinding string = `
@@ -410,7 +411,7 @@ spec:
   scope:
     resource: clusterrolebinding
     name: pre-cache-crb
-    updateIntervalSeconds: 120
+    updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
 const mngClusterViewNamespace string = `
@@ -420,7 +421,7 @@ spec:
   scope:
     resource: namespaces
     name: pre-cache
-    updateIntervalSeconds: 120
+    updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
 const mngClusterActDeletePrecachingNS string = `

@@ -144,7 +144,8 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 	}
 
 	data := templateData{
-		Cluster: cluster,
+		Cluster:               cluster,
+		ViewUpdateIntervalSec: 10,
 	}
 	err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
 	nextState = PrecacheStateStarting
@@ -178,7 +179,8 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 		}
 	case NoJobView:
 		data := templateData{
-			Cluster: cluster,
+			Cluster:               cluster,
+			ViewUpdateIntervalSec: 20,
 		}
 		err = r.createResourcesFromTemplates(ctx, &data, precacheNSViewTemplates)
 		if err != nil {
@@ -232,7 +234,8 @@ func (r *ClusterGroupUpgradeReconciler) handleRestarting(ctx context.Context,
 		err = r.undeployPrecachingWorkload(ctx, cluster)
 	} else {
 		data := templateData{
-			Cluster: cluster,
+			Cluster:               cluster,
+			ViewUpdateIntervalSec: 20,
 		}
 		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
 		nextState = PrecacheStateStarting

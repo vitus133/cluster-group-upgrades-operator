@@ -74,7 +74,8 @@ func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
 	// 2. deploy the spoke pre-cache view resource to watch for
 	//    the the namespace delete completion
 	spec := templateData{
-		Cluster: cluster,
+		Cluster:               cluster,
+		ViewUpdateIntervalSec: 20,
 	}
 	err = r.createResourcesFromTemplates(ctx, &spec, precacheNSViewTemplates)
 	if err != nil {
@@ -362,6 +363,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	if err != nil {
 		return err
 	}
+	spec.ViewUpdateIntervalSec = 20
 	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheJobTemplateData",
 		cluster, "status", "success")
 	// Delete the job view so it is refreshed
@@ -429,6 +431,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingDependencies(
 	if err != nil {
 		return false, err
 	}
+	spec.ViewUpdateIntervalSec = 20
 	err = r.createResourcesFromTemplates(ctx, spec, precacheDependenciesViewTemplates)
 	if err != nil {
 		return false, err
