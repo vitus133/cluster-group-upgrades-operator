@@ -330,8 +330,8 @@ spec:
           spec:
             containers:
             - args:
-              # - /opt/precache/precache.sh
-              - sleep inf
+              - /opt/precache/precache.sh
+              
               command:
               - /bin/bash
               - -c

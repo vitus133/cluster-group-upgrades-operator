@@ -258,6 +258,10 @@ func (r *ClusterGroupUpgradeReconciler) handleActive(ctx context.Context,
 	}
 	switch condition {
 	case PrecacheJobDeadline:
+		err = r.deletePrecacheDependenciesView(ctx, cluster)
+		if err != nil {
+			return nextState, err
+		}
 		nextState = PrecacheStateTimeout
 	case PrecacheJobSucceeded:
 		err = r.deletePrecacheDependenciesView(ctx, cluster)
@@ -266,6 +270,10 @@ func (r *ClusterGroupUpgradeReconciler) handleActive(ctx context.Context,
 		}
 		nextState = PrecacheStateSucceeded
 	case PrecacheJobBackoffLimitExceeded:
+		err = r.deletePrecacheDependenciesView(ctx, cluster)
+		if err != nil {
+			return nextState, err
+		}
 		nextState = PrecacheStateError
 	case PrecacheJobActive:
 		nextState = PrecacheStateActive
