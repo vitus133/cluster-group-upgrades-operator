@@ -191,7 +191,7 @@ func (r *ClusterGroupUpgradeReconciler) getView(
 	return view, true, nil
 }
 
-func (r *ClusterGroupUpgradeReconciler) checkPrecachePresent(
+func (r *ClusterGroupUpgradeReconciler) checkPrecacheNsPresent(
 	ctx context.Context,
 	cluster string) (bool, error) {
 
@@ -201,7 +201,7 @@ func (r *ClusterGroupUpgradeReconciler) checkPrecachePresent(
 		return false, err
 	}
 	if !available {
-		return false, fmt.Errorf("[checkPrecachePresent] no view resource available")
+		return false, fmt.Errorf("[checkPrecacheNsPresent] no view resource available")
 	}
 	return r.managedResourceAvailable(ctx, view)
 	// if err != nil {

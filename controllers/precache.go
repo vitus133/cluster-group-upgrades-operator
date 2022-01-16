@@ -102,33 +102,6 @@ func (r *ClusterGroupUpgradeReconciler) cleanupHubResources(ctx context.Context,
 	return nil
 }
 
-func (r *ClusterGroupUpgradeReconciler) handleCguStates(
-	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) {
-	// Handle completion
-	if func() bool {
-		for _, state := range clusterGroupUpgrade.Status.PrecacheStatus {
-			if state != PrecacheStateSucceeded {
-				return false
-			}
-		}
-		return true
-	}() {
-		meta.SetStatusCondition(
-			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-				Type:    "Ready",
-				Status:  metav1.ConditionFalse,
-				Reason:  "UpgradeNotStarted",
-				Message: "Precaching is completed"})
-		meta.SetStatusCondition(
-			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-				Type:    "PrecachingDone",
-				Status:  metav1.ConditionTrue,
-				Reason:  "PrecachingCompleted",
-				Message: "Precaching is completed"})
-		meta.RemoveStatusCondition(&clusterGroupUpgrade.Status.Conditions, "PrecacheSpecValid")
-	}
-}
-
 // getPrecacheCondition: Gets the pre-caching state from the ManagedClusterView
 //          monitoring the spoke.
 // returns: string: job condition

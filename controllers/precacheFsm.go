@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	ranv1alpha1 "github.com/openshift-kni/cluster-group-upgrades-operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Pre-cache states
@@ -67,25 +69,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 			}
 		// Restart
 		case PrecacheStateRestarting:
-			//Check no precaching NS present
-			present, err := r.checkPrecachePresent(ctx, cluster)
-			if err != nil {
-				return err
-			}
-			if present {
-				err = r.undeployPrecachingWorkload(ctx, cluster)
-				nextState = currentState
-				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "PrecachePresent",
-					"cluster", cluster, "nextState", nextState)
-			} else {
-				data := templateData{
-					Cluster: cluster,
-				}
-				err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
-				nextState = PrecacheStateStarting
-				r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", "PrecacheNotPresent",
-					"cluster", cluster, "nextState", nextState)
-			}
+			nextState, err = r.handleRestarting(ctx, cluster)
 			if err != nil {
 				return err
 			}
@@ -96,22 +80,11 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 			r.Log.Info("[precachingFsm]", "cluster", cluster, "final state", currentState)
 
 		case PrecacheStateActive:
-			condition, err := r.getPrecacheCondition(ctx, cluster)
+			nextState, err = r.handleActive(ctx, cluster)
 			if err != nil {
 				return err
 			}
-			switch condition {
-			case PrecacheJobDeadline:
-				nextState = PrecacheStateTimeout
-			case PrecacheJobSucceeded:
-				nextState = PrecacheStateSucceeded
-			case PrecacheJobBackoffLimitExceeded:
-				nextState = PrecacheStateError
-			case PrecacheJobActive:
-				nextState = PrecacheStateActive
-			default:
-				return fmt.Errorf("[precachingFsm] unknown condition %s in %s state", condition, currentState)
-			}
+
 		default:
 			return fmt.Errorf("[precachingFsm] unknown state %s", currentState)
 
@@ -123,7 +96,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	}
 	clusterGroupUpgrade.Status.PrecacheStatus = make(map[string]string)
 	clusterGroupUpgrade.Status.PrecacheStatus = clusterStates
-	r.handleCguStates(clusterGroupUpgrade)
+	r.handleAlleviation(clusterGroupUpgrade)
 	return nil
 }
 
@@ -144,7 +117,7 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 		// We clean up and create view resources again since they are
 		// updating periodically and could be outdated
 		err = r.cleanupHubResources(ctx, cluster)
-		condition = JobViewExists
+		condition = JobViewExists // for logging; will stay in current state
 	} else {
 		data := templateData{
 			Cluster: cluster,
@@ -160,7 +133,7 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 	return nextState, nil
 }
 
-// handleStarting: Handles conditions in PrecacheStateStart
+// handleStarting: Handles conditions in PrecacheStateStarting
 // returns: error
 func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
@@ -218,4 +191,88 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 		"cluster", cluster, "action", "cleanupHubResources", "nextState", nextState)
 
 	return nextState, nil
+}
+
+// handleRestarting: Handles conditions in PrecacheStateRestarting
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) handleRestarting(ctx context.Context,
+	cluster string) (string, error) {
+
+	nextState, currentState := PrecacheStateRestarting, PrecacheStateRestarting
+	//Check no precaching NS present
+	present, err := r.checkPrecacheNsPresent(ctx, cluster)
+	if err != nil {
+		return nextState, err
+	}
+	if present {
+		// No state change
+		err = r.undeployPrecachingWorkload(ctx, cluster)
+	} else {
+		data := templateData{
+			Cluster: cluster,
+		}
+		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
+		nextState = PrecacheStateStarting
+	}
+	r.Log.Info("[precachingFsm]", "currentState", currentState,
+		"cluster", cluster, "nextState", nextState)
+
+	if err != nil {
+		return nextState, err
+	}
+	return nextState, nil
+}
+
+// handleActive: Handles conditions in PrecacheStateActive
+// returns: error
+func (r *ClusterGroupUpgradeReconciler) handleActive(ctx context.Context,
+	cluster string) (string, error) {
+
+	nextState, currentState := PrecacheStateActive, PrecacheStateActive
+	condition, err := r.getPrecacheCondition(ctx, cluster)
+	if err != nil {
+		return nextState, err
+	}
+	switch condition {
+	case PrecacheJobDeadline:
+		nextState = PrecacheStateTimeout
+	case PrecacheJobSucceeded:
+		nextState = PrecacheStateSucceeded
+	case PrecacheJobBackoffLimitExceeded:
+		nextState = PrecacheStateError
+	case PrecacheJobActive:
+		nextState = PrecacheStateActive
+	default:
+		return currentState, fmt.Errorf("[precachingFsm] unknown condition %s in %s state",
+			condition, currentState)
+	}
+	return nextState, nil
+}
+
+// handleAlleviation: handle alleviation of conditions related to all clusters
+func (r *ClusterGroupUpgradeReconciler) handleAlleviation(
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) {
+	// Handle completion
+	if func() bool {
+		for _, state := range clusterGroupUpgrade.Status.PrecacheStatus {
+			if state != PrecacheStateSucceeded {
+				return false
+			}
+		}
+		return true
+	}() {
+		meta.SetStatusCondition(
+			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionFalse,
+				Reason:  "UpgradeNotStarted",
+				Message: "Precaching is completed"})
+		meta.SetStatusCondition(
+			&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+				Type:    "PrecachingDone",
+				Status:  metav1.ConditionTrue,
+				Reason:  "PrecachingCompleted",
+				Message: "Precaching is completed"})
+		meta.RemoveStatusCondition(&clusterGroupUpgrade.Status.Conditions, "PrecacheSpecValid")
+	}
 }
