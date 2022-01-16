@@ -27,13 +27,14 @@ import (
 
 // Pre-cache states
 const (
-	PrecacheStateNotStarted = "NotStarted"
-	PrecacheStateStarting   = "Starting"
-	PrecacheStateRestarting = "Restarting"
-	PrecacheStateActive     = "Active"
-	PrecacheStateSucceeded  = "Succeeded"
-	PrecacheStateTimeout    = "PrecacheTimeout"
-	PrecacheStateError      = "UnrecoverableError"
+	PrecacheStateNotStarted  = "NotStarted"
+	PrecacheStatePreExisting = "PrecacheStatePreExisting"
+	PrecacheStateStarting    = "Starting"
+	PrecacheStateRestarting  = "Restarting"
+	PrecacheStateActive      = "Active"
+	PrecacheStateSucceeded   = "Succeeded"
+	PrecacheStateTimeout     = "PrecacheTimeout"
+	PrecacheStateError       = "UnrecoverableError"
 )
 
 // Pre-cache resources conditions
@@ -41,8 +42,8 @@ const (
 	NoJobView                       = "NoJobView"
 	NoJobFoundOnSpoke               = "NoJobFoundOnSpoke"
 	JobViewExists                   = "JobViewExists"
+	DependenciesViewNotPresent      = "DependenciesViewNotPresent"
 	DependenciesNotPresent          = "DependenciesNotPresent"
-	DependenciesPresent             = "DependenciesPresent"
 	PrecacheJobDeadline             = "PrecacheJobDeadline"
 	PrecacheJobSucceeded            = "PrecacheJobSucceeded"
 	PrecacheJobActive               = "PrecacheJobActive"
@@ -133,15 +134,21 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 		// We clean up and create view resources again since they are
 		// updating periodically and could be outdated
 		err = r.cleanupHubResources(ctx, cluster)
-		condition = JobViewExists // for logging; will stay in current state
-	} else {
-		data := templateData{
-			Cluster: cluster,
+		if err != nil {
+			return nextState, err
 		}
-		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
-		nextState = PrecacheStateStarting
+		condition = JobViewExists // for logging
+
+	} else {
 		condition = NoJobView
 	}
+
+	data := templateData{
+		Cluster: cluster,
+	}
+	err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
+	nextState = PrecacheStateStarting
+
 	r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
 		"cluster", cluster, "nextState", nextState)
 	if err != nil {
@@ -164,12 +171,11 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 		return nextState, err
 	}
 	switch condition {
-	case DependenciesNotPresent:
+	case DependenciesViewNotPresent, DependenciesNotPresent:
 		_, err := r.deployPrecachingDependencies(ctx, clusterGroupUpgrade, cluster)
 		if err != nil {
 			return nextState, err
 		}
-
 	case NoJobView:
 		data := templateData{
 			Cluster: cluster,
@@ -180,16 +186,12 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 		}
 	case NoJobFoundOnSpoke:
 		r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", NoJobFoundOnSpoke,
-			"cluster", cluster, "action", "createResourcesFromTemplates", "nextState", PrecacheStateStarting)
+			"cluster", cluster, "nextState", PrecacheStateStarting)
 		err = r.deployPrecachingWorkload(ctx, clusterGroupUpgrade, cluster)
 		if err != nil {
 			return nextState, err
 		}
 	case PrecacheJobActive:
-		err = r.deletePrecacheDependenciesView(ctx, cluster)
-		if err != nil {
-			return currentState, err
-		}
 		nextState = PrecacheStateActive
 	case PrecacheJobSucceeded:
 		nextState = PrecacheStateSucceeded
@@ -258,6 +260,10 @@ func (r *ClusterGroupUpgradeReconciler) handleActive(ctx context.Context,
 	case PrecacheJobDeadline:
 		nextState = PrecacheStateTimeout
 	case PrecacheJobSucceeded:
+		err = r.deletePrecacheDependenciesView(ctx, cluster)
+		if err != nil {
+			return currentState, err
+		}
 		nextState = PrecacheStateSucceeded
 	case PrecacheJobBackoffLimitExceeded:
 		nextState = PrecacheStateError

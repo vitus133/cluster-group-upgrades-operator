@@ -48,7 +48,7 @@ func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(
 func (r *ClusterGroupUpgradeReconciler) cleanupHubResources(ctx context.Context, cluster string) error {
 	// Cleanup all existing view objects that might have been left behind
 	// in case of a crash etc.
-	for _, item := range allPossibleClusterViewsForDelete {
+	for _, item := range allViews {
 		err := r.deleteManagedClusterViewResource(ctx, item.resourceName, cluster)
 		if err != nil {
 			if !errors.IsNotFound(err) {
@@ -90,6 +90,14 @@ func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
 func (r *ClusterGroupUpgradeReconciler) getPrecacheCondition(
 	ctx context.Context, cluster string) (
 	string, error) {
+
+	depsViewPresent, err := r.checkPrecacheDependenciesView(ctx, cluster)
+	if err != nil {
+		return PrecacheUnforeseenCondition, err
+	}
+	if !depsViewPresent {
+		return DependenciesViewNotPresent, nil
+	}
 
 	depsPresent, err := r.checkPrecacheDependencies(ctx, cluster)
 	if err != nil {
@@ -178,12 +186,12 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheCondition(
 	return PrecacheUnforeseenCondition, fmt.Errorf(string(btJobStatus))
 }
 
-// checkPrecacheDependencies: check all precache job dependencies
+// checkPrecacheDependenciesView: check all precache job dependencies
 //		have been deployed
 // returns: 	available (bool) - deployed and available (true),
 //		otherwise false
 //				error
-func (r *ClusterGroupUpgradeReconciler) checkPrecacheDependencies(
+func (r *ClusterGroupUpgradeReconciler) checkPrecacheDependenciesView(
 	ctx context.Context, cluster string) (bool, error) {
 
 	for _, item := range precacheDependenciesViewTemplates {
@@ -193,6 +201,34 @@ func (r *ClusterGroupUpgradeReconciler) checkPrecacheDependencies(
 			return false, err
 		}
 		if !available {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// checkPrecacheDependencies: check all precache job dependencies
+//		have been deployed
+// returns: 	available (bool) - deployed and available (true),
+//		otherwise false
+//				error
+func (r *ClusterGroupUpgradeReconciler) checkPrecacheDependencies(
+	ctx context.Context, cluster string) (bool, error) {
+
+	for _, item := range precacheDependenciesViewTemplates {
+		view, available, err := r.getView(
+			ctx, item.resourceName, cluster)
+		if err != nil {
+			return false, err
+		}
+		if !available {
+			return false, nil
+		}
+		depsPresent, err := r.managedResourceAvailable(ctx, view)
+		if err != nil {
+			return false, err
+		}
+		if !depsPresent {
 			return false, nil
 		}
 	}

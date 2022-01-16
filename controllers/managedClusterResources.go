@@ -84,7 +84,7 @@ var precacheNSViewTemplates = []resourceTemplate{
 	{"view-precache-namespace", mngClusterViewNamespace},
 }
 
-var allPossibleClusterViewsForDelete = []resourceTemplate{
+var allViews = []resourceTemplate{
 	{"view-precache-namespace", ""},
 	{"view-precache-job", ""},
 	{"view-precache-spec-configmap", ""},
@@ -378,7 +378,7 @@ spec:
     resource: jobs
     name: pre-cache
     namespace: pre-cache
-    updateIntervalSeconds: 300
+    updateIntervalSeconds: 120
 `
 
 const mngClusterViewConfigMap string = `
@@ -389,7 +389,7 @@ spec:
     resource: configmap
     name: pre-cache-spec
     namespace: pre-cache
-    updateIntervalSeconds: 300
+    updateIntervalSeconds: 120
 `
 
 const mngClusterViewServiceAcct string = `
@@ -400,7 +400,7 @@ spec:
     resource: serviceaccounts
     name: pre-cache-agent
     namespace: pre-cache
-    updateIntervalSeconds: 300
+    updateIntervalSeconds: 120
 `
 
 const mngClusterViewClusterRoleBinding string = `
@@ -410,7 +410,7 @@ spec:
   scope:
     resource: clusterrolebinding
     name: pre-cache-crb
-    updateIntervalSeconds: 300
+    updateIntervalSeconds: 120
 `
 
 const mngClusterViewNamespace string = `
@@ -420,7 +420,7 @@ spec:
   scope:
     resource: namespaces
     name: pre-cache
-    updateIntervalSeconds: 300
+    updateIntervalSeconds: 120
 `
 
 const mngClusterActDeletePrecachingNS string = `
