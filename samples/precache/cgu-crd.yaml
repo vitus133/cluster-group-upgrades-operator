@@ -192,6 +192,10 @@ spec:
                 items:
                   type: string
                 type: array
+              precacheClusters:
+                items:
+                  type: string
+                type: array
               precacheSpec:
                 description: PrecachingSpec defines the pre-caching software spec
                   derived from policies

@@ -130,6 +130,7 @@ type ClusterGroupUpgradeStatus struct {
 	Status            UpgradeStatus      `json:"status,omitempty"`
 	PrecacheSpec      PrecachingSpec     `json:"precacheSpec,omitempty"`
 	PrecacheStatus    map[string]string  `json:"precacheStatus,omitempty"`
+	PrecacheClusters  []string           `json:"precacheClusters,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	ranv1alpha1 "github.com/openshift-kni/cluster-group-upgrades-operator/api/v1alpha1"
+	"github.com/openshift-kni/cluster-group-upgrades-operator/controllers/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -57,9 +58,16 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
 	r.setPrecachingRequired(clusterGroupUpgrade)
-	clusters, err := r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
-	if err != nil {
-		return fmt.Errorf("cannot obtain the CGU cluster list: %s", err)
+	var clusters []string
+	var err error
+	if len(clusterGroupUpgrade.Status.PrecacheClusters) != 0 {
+		clusters = clusterGroupUpgrade.Status.PrecacheClusters
+	} else {
+		clusters, err = r.getAllClustersForUpgrade(ctx, clusterGroupUpgrade)
+		if err != nil {
+			return fmt.Errorf("cannot obtain the CGU cluster list: %s", err)
+		}
+		clusterGroupUpgrade.Status.PrecacheClusters = clusters
 	}
 
 	clusterStates := make(map[string]string)
@@ -75,7 +83,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 		switch currentState {
 		// Initial State
 		case PrecacheStateNotStarted:
-			nextState, err = r.handleNotStarted(ctx, cluster)
+			nextState, err = r.handleNotStarted(ctx, clusterGroupUpgrade, cluster)
 			if err != nil {
 				return err
 			}
@@ -86,7 +94,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 			}
 		// Restart
 		case PrecacheStateRestarting:
-			nextState, err = r.handleRestarting(ctx, cluster)
+			nextState, err = r.handleRestarting(ctx, clusterGroupUpgrade, cluster)
 			if err != nil {
 				return err
 			}
@@ -120,6 +128,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 // handleNotStarted: Handles conditions in PrecacheStateNotStarted
 // returns: error
 func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
 	cluster string) (string, error) {
 
 	nextState, currentState := PrecacheStateNotStarted, PrecacheStateNotStarted
@@ -145,7 +154,7 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 
 	data := templateData{
 		Cluster:               cluster,
-		ViewUpdateIntervalSec: 10,
+		ViewUpdateIntervalSec: utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters),
 	}
 	err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
 	nextState = PrecacheStateStarting
@@ -180,9 +189,9 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 	case NoJobView:
 		data := templateData{
 			Cluster:               cluster,
-			ViewUpdateIntervalSec: 20,
+			ViewUpdateIntervalSec: utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters),
 		}
-		err = r.createResourcesFromTemplates(ctx, &data, precacheNSViewTemplates)
+		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
 		if err != nil {
 			return nextState, err
 		}
@@ -194,12 +203,26 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 			return nextState, err
 		}
 	case PrecacheJobActive:
+		// Reduce the frequency of updates.
+		// Keep the views to get consistent conditions in the active state
+		data := templateData{
+			Cluster:               cluster,
+			ViewUpdateIntervalSec: 3600 * len(clusterGroupUpgrade.Status.PrecacheClusters),
+		}
+		err = r.deletePrecacheDependenciesView(ctx, cluster)
+		if err != nil {
+			return currentState, err
+		}
+		err = r.createResourcesFromTemplates(ctx, &data, precacheDependenciesViewTemplates)
+		if err != nil {
+			return currentState, err
+		}
 		nextState = PrecacheStateActive
 	case PrecacheJobSucceeded:
 		nextState = PrecacheStateSucceeded
 	case PrecacheJobDeadline:
 		//Delete all
-		err = r.restartPrecaching(ctx, cluster)
+		err = r.restartPrecaching(ctx, clusterGroupUpgrade, cluster)
 		if err != nil {
 			return nextState, err
 		}
@@ -221,6 +244,7 @@ func (r *ClusterGroupUpgradeReconciler) handleStarting(ctx context.Context,
 // handleRestarting: Handles conditions in PrecacheStateRestarting
 // returns: error
 func (r *ClusterGroupUpgradeReconciler) handleRestarting(ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
 	cluster string) (string, error) {
 
 	nextState, currentState := PrecacheStateRestarting, PrecacheStateRestarting
@@ -235,7 +259,7 @@ func (r *ClusterGroupUpgradeReconciler) handleRestarting(ctx context.Context,
 	} else {
 		data := templateData{
 			Cluster:               cluster,
-			ViewUpdateIntervalSec: 20,
+			ViewUpdateIntervalSec: utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters),
 		}
 		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
 		nextState = PrecacheStateStarting

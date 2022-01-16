@@ -43,7 +43,7 @@ func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(
 	return nil
 }
 
-// restartPrecaching: Restart precaching on the cluster
+// cleanupHubResources: Delete managed cluster view resources
 // returns: error
 func (r *ClusterGroupUpgradeReconciler) cleanupHubResources(ctx context.Context, cluster string) error {
 	// Cleanup all existing view objects that might have been left behind
@@ -63,6 +63,7 @@ func (r *ClusterGroupUpgradeReconciler) cleanupHubResources(ctx context.Context,
 // returns: error
 func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
 	ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
 	cluster string) error {
 
 	// 1. delete the precaching namespace on the spoke and
@@ -75,7 +76,7 @@ func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
 	//    the the namespace delete completion
 	spec := templateData{
 		Cluster:               cluster,
-		ViewUpdateIntervalSec: 20,
+		ViewUpdateIntervalSec: utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters),
 	}
 	err = r.createResourcesFromTemplates(ctx, &spec, precacheNSViewTemplates)
 	if err != nil {
@@ -236,20 +237,23 @@ func (r *ClusterGroupUpgradeReconciler) checkPrecacheDependencies(
 	return true, nil
 }
 
-// getPrecachingSpecFromPolicies: extract the precaching spec from policies
-//		in the CGU namespace. There are three object types to look at:
+// getPrecachingSpec: get the precaching spec
+// 		Extract from policies or copy from the status if already stored.
+//		In the policies, there are three object types to look at:
 //      - ClusterVersion: release image must be specified to be pre-cached
 //      - Subscription: provides the list of operator packages and channels
 //      - CatalogSource: must be explicitly configured to be precached.
 //        All the clusters in the CGU must have same catalog source(s)
 // returns: precachingSpec, error
 
-func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
+func (r *ClusterGroupUpgradeReconciler) getPrecachingSpec(
 	ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (ranv1alpha1.PrecachingSpec, error) {
 
-	//TODO: check consistency in one place
-	if clusterGroupUpgrade.Status.PrecacheSpec.PlatformImage != "" || len(clusterGroupUpgrade.Status.PrecacheSpec.OperatorsIndexes) > 0 {
+	if clusterGroupUpgrade.Status.PrecacheSpec.PlatformImage != "" ||
+		len(clusterGroupUpgrade.Status.PrecacheSpec.OperatorsIndexes) > 0 {
+
+		r.Log.Info("[getPrecachingSpec]", "Precache spec source", "status")
 		return clusterGroupUpgrade.Status.PrecacheSpec, nil
 	}
 	var spec ranv1alpha1.PrecachingSpec
@@ -269,7 +273,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 			}
 			return false
 		}(policy.GetName(), clusterGroupUpgrade.Spec.ManagedPolicies) {
-			r.Log.Info("[getPrecachingSpecFromPolicies]", "Skip policy",
+			r.Log.Info("[getPrecachingSpec]", "Skip policy",
 				policy.GetName(), "reason", "Not in CGU")
 			continue
 		}
@@ -295,17 +299,17 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 					return *new(ranv1alpha1.PrecachingSpec), nil
 				}
 				spec.PlatformImage = fmt.Sprintf("%s", image)
-				r.Log.Info("[getPrecachingSpecFromPolicies]", "ClusterVersion image", image)
+				r.Log.Info("[getPrecachingSpec]", "ClusterVersion image", image)
 			case "Subscription":
 				packChan := fmt.Sprintf("%s:%s", object["spec"].(map[string]interface{})["name"],
 					object["spec"].(map[string]interface{})["channel"])
 				spec.OperatorsPackagesAndChannels = append(spec.OperatorsPackagesAndChannels, packChan)
-				r.Log.Info("[getPrecachingSpecFromPolicies]", "Operator package:channel", packChan)
+				r.Log.Info("[getPrecachingSpec]", "Operator package:channel", packChan)
 				continue
 			case "CatalogSource":
 				index := fmt.Sprintf("%s", object["spec"].(map[string]interface{})["image"])
 				spec.OperatorsIndexes = append(spec.OperatorsIndexes, index)
-				r.Log.Info("[getPrecachingSpecFromPolicies]", "CatalogSource", index)
+				r.Log.Info("[getPrecachingSpec]", "CatalogSource", index)
 				continue
 			default:
 				continue
@@ -363,7 +367,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	if err != nil {
 		return err
 	}
-	spec.ViewUpdateIntervalSec = 20
+	spec.ViewUpdateIntervalSec = utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters)
 	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheJobTemplateData",
 		cluster, "status", "success")
 	// Delete the job view so it is refreshed
@@ -431,7 +435,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingDependencies(
 	if err != nil {
 		return false, err
 	}
-	spec.ViewUpdateIntervalSec = 20
+	spec.ViewUpdateIntervalSec = utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters)
 	err = r.createResourcesFromTemplates(ctx, spec, precacheDependenciesViewTemplates)
 	if err != nil {
 		return false, err
@@ -559,7 +563,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	rv := new(templateData)
 	rv.Cluster = clusterName
 
-	spec, err := r.getPrecachingSpecFromPolicies(ctx, clusterGroupUpgrade)
+	spec, err := r.getPrecachingSpec(ctx, clusterGroupUpgrade)
 	if err != nil {
 		return rv, err
 	}

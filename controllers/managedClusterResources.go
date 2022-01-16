@@ -322,8 +322,7 @@ spec:
         name: pre-cache
         namespace: pre-cache
       spec:
-        activeDeadlineSeconds: 144
-        # activeDeadlineSeconds: {{ .PrecachingJobTimeout }}
+        activeDeadlineSeconds: {{ .PrecachingJobTimeout }}
         backoffLimit: 0
         template:
           metadata:
@@ -332,7 +331,6 @@ spec:
             containers:
             - args:
               - /opt/precache/precache.sh
-              
               command:
               - /bin/bash
               - -c
