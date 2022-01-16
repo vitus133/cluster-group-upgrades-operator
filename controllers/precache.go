@@ -20,12 +20,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-type precachingSpec struct {
-	PlatformImage                string
-	OperatorsIndexes             []string
-	OperatorsPackagesAndChannels []string
-}
-
 // reconcilePrecaching: main precaching loop function
 // returns: 			error
 func (r *ClusterGroupUpgradeReconciler) reconcilePrecaching(
@@ -215,9 +209,13 @@ func (r *ClusterGroupUpgradeReconciler) checkPrecacheDependencies(
 
 func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 	ctx context.Context,
-	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (precachingSpec, error) {
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (ranv1alpha1.PrecachingSpec, error) {
 
-	var spec precachingSpec
+	//TODO: check consistency in one place
+	if clusterGroupUpgrade.Status.PrecacheSpec.PlatformImage != "" || len(clusterGroupUpgrade.Status.PrecacheSpec.OperatorsIndexes) > 0 {
+		return clusterGroupUpgrade.Status.PrecacheSpec, nil
+	}
+	var spec ranv1alpha1.PrecachingSpec
 	policiesList, err := r.getPoliciesForNamespace(ctx, clusterGroupUpgrade.GetNamespace())
 	if err != nil {
 		return spec, err
@@ -257,7 +255,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 						Status:  metav1.ConditionFalse,
 						Reason:  "PlatformImageConflict",
 						Message: msg})
-					return *new(precachingSpec), nil
+					return *new(ranv1alpha1.PrecachingSpec), nil
 				}
 				spec.PlatformImage = fmt.Sprintf("%s", image)
 				r.Log.Info("[getPrecachingSpecFromPolicies]", "ClusterVersion image", image)
@@ -277,6 +275,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpecFromPolicies(
 			}
 		}
 	}
+	clusterGroupUpgrade.Status.PrecacheSpec = spec
 	return spec, nil
 }
 

@@ -104,10 +104,6 @@ spec:
           status:
             description: ClusterGroupUpgradeStatus defines the observed state of ClusterGroupUpgrade
             properties:
-              PrecacheStatus:
-                additionalProperties:
-                  type: string
-                type: object
               conditions:
                 items:
                   description: "Condition contains details for one aspect of the current
@@ -196,6 +192,25 @@ spec:
                 items:
                   type: string
                 type: array
+              precacheSpec:
+                description: PrecachingSpec defines the pre-caching software spec
+                  derived from policies
+                properties:
+                  operatorsIndexes:
+                    items:
+                      type: string
+                    type: array
+                  operatorsPackagesAndChannels:
+                    items:
+                      type: string
+                    type: array
+                  platformImage:
+                    type: string
+                type: object
+              precacheStatus:
+                additionalProperties:
+                  type: string
+                type: object
               remediationPlan:
                 items:
                   items:

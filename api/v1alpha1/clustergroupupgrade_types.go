@@ -110,6 +110,13 @@ type PolicyStatus struct {
 	ComplianceState string `json:"complianceState,omitempty"`
 }
 
+// PrecachingSpec defines the pre-caching software spec derived from policies
+type PrecachingSpec struct {
+	PlatformImage                string   `json:"platformImage,omitempty"`
+	OperatorsIndexes             []string `json:"operatorsIndexes,omitempty"`
+	OperatorsPackagesAndChannels []string `json:"operatorsPackagesAndChannels,omitempty"`
+}
+
 // ClusterGroupUpgradeStatus defines the observed state of ClusterGroupUpgrade
 type ClusterGroupUpgradeStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
@@ -121,7 +128,8 @@ type ClusterGroupUpgradeStatus struct {
 	RemediationPlan   [][]string         `json:"remediationPlan,omitempty"`
 	ManagedPoliciesNs map[string]string  `json:"managedPoliciesNs,omitempty"`
 	Status            UpgradeStatus      `json:"status,omitempty"`
-	PrecacheStatus    map[string]string  `json:"PrecacheStatus,omitempty"`
+	PrecacheSpec      PrecachingSpec     `json:"precacheSpec,omitempty"`
+	PrecacheStatus    map[string]string  `json:"precacheStatus,omitempty"`
 }
 
 //+kubebuilder:object:root=true

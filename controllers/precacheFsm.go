@@ -140,6 +140,7 @@ func (r *ClusterGroupUpgradeReconciler) handleNotStarted(ctx context.Context,
 		}
 		err = r.createResourcesFromTemplates(ctx, &data, precacheJobView)
 		nextState = PrecacheStateStarting
+		condition = NoJobView
 	}
 	r.Log.Info("[precachingFsm]", "currentState", currentState, "condition", condition,
 		"cluster", cluster, "nextState", nextState)
