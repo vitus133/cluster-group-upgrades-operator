@@ -76,7 +76,7 @@ func (r *ClusterGroupUpgradeReconciler) restartPrecaching(
 	//    the the namespace delete completion
 	spec := templateData{
 		Cluster:               cluster,
-		ViewUpdateIntervalSec: utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters),
+		ViewUpdateIntervalSec: utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.Precaching.Clusters),
 	}
 	err = r.createResourcesFromTemplates(ctx, &spec, precacheNSViewTemplates)
 	if err != nil {
@@ -250,11 +250,11 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpec(
 	ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (ranv1alpha1.PrecachingSpec, error) {
 
-	if clusterGroupUpgrade.Status.PrecacheSpec.PlatformImage != "" ||
-		len(clusterGroupUpgrade.Status.PrecacheSpec.OperatorsIndexes) > 0 {
+	if clusterGroupUpgrade.Status.Precaching.Spec.PlatformImage != "" ||
+		len(clusterGroupUpgrade.Status.Precaching.Spec.OperatorsIndexes) > 0 {
 
 		r.Log.Info("[getPrecachingSpec]", "Precache spec source", "status")
-		return clusterGroupUpgrade.Status.PrecacheSpec, nil
+		return clusterGroupUpgrade.Status.Precaching.Spec, nil
 	}
 	var spec ranv1alpha1.PrecachingSpec
 	policiesList, err := r.getPoliciesForNamespace(ctx, clusterGroupUpgrade.GetNamespace())
@@ -316,7 +316,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpec(
 			}
 		}
 	}
-	clusterGroupUpgrade.Status.PrecacheSpec = spec
+	clusterGroupUpgrade.Status.Precaching.Spec = spec
 	return spec, nil
 }
 
@@ -367,7 +367,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingWorkload(
 	if err != nil {
 		return err
 	}
-	spec.ViewUpdateIntervalSec = utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters)
+	spec.ViewUpdateIntervalSec = utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.Precaching.Clusters)
 	r.Log.Info("[deployPrecachingWorkload]", "getPrecacheJobTemplateData",
 		cluster, "status", "success")
 	// Delete the job view so it is refreshed
@@ -435,7 +435,7 @@ func (r *ClusterGroupUpgradeReconciler) deployPrecachingDependencies(
 	if err != nil {
 		return false, err
 	}
-	spec.ViewUpdateIntervalSec = utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.PrecacheClusters)
+	spec.ViewUpdateIntervalSec = utils.ViewUpdateSec * len(clusterGroupUpgrade.Status.Precaching.Clusters)
 	err = r.createResourcesFromTemplates(ctx, spec, precacheDependenciesViewTemplates)
 	if err != nil {
 		return false, err

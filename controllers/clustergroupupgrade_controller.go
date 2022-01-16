@@ -91,7 +91,7 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.Log.Error(err, "reconcilePrecaching error")
 		return ctrl.Result{}, err
 	}
-	for _, v := range clusterGroupUpgrade.Status.PrecacheStatus {
+	for _, v := range clusterGroupUpgrade.Status.Precaching.Status {
 		if v == "Starting" {
 			requeueAfter := 20 * time.Second
 			nextReconcile = ctrl.Result{RequeueAfter: requeueAfter}

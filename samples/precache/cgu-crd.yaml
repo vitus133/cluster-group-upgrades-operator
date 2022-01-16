@@ -192,28 +192,31 @@ spec:
                 items:
                   type: string
                 type: array
-              precacheClusters:
-                items:
-                  type: string
-                type: array
-              precacheSpec:
-                description: PrecachingSpec defines the pre-caching software spec
-                  derived from policies
+              precaching:
                 properties:
-                  operatorsIndexes:
+                  clusters:
                     items:
                       type: string
                     type: array
-                  operatorsPackagesAndChannels:
-                    items:
+                  spec:
+                    description: PrecachingSpec defines the pre-caching software spec
+                      derived from policies
+                    properties:
+                      operatorsIndexes:
+                        items:
+                          type: string
+                        type: array
+                      operatorsPackagesAndChannels:
+                        items:
+                          type: string
+                        type: array
+                      platformImage:
+                        type: string
+                    type: object
+                  status:
+                    additionalProperties:
                       type: string
-                    type: array
-                  platformImage:
-                    type: string
-                type: object
-              precacheStatus:
-                additionalProperties:
-                  type: string
+                    type: object
                 type: object
               remediationPlan:
                 items:

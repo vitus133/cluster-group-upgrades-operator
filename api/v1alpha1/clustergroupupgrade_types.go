@@ -117,6 +117,12 @@ type PrecachingSpec struct {
 	OperatorsPackagesAndChannels []string `json:"operatorsPackagesAndChannels,omitempty"`
 }
 
+type PrecachingStatus struct {
+	Spec     PrecachingSpec    `json:"spec,omitempty"`
+	Status   map[string]string `json:"status,omitempty"`
+	Clusters []string          `json:"clusters,omitempty"`
+}
+
 // ClusterGroupUpgradeStatus defines the observed state of ClusterGroupUpgrade
 type ClusterGroupUpgradeStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
@@ -128,9 +134,7 @@ type ClusterGroupUpgradeStatus struct {
 	RemediationPlan   [][]string         `json:"remediationPlan,omitempty"`
 	ManagedPoliciesNs map[string]string  `json:"managedPoliciesNs,omitempty"`
 	Status            UpgradeStatus      `json:"status,omitempty"`
-	PrecacheSpec      PrecachingSpec     `json:"precacheSpec,omitempty"`
-	PrecacheStatus    map[string]string  `json:"precacheStatus,omitempty"`
-	PrecacheClusters  []string           `json:"precacheClusters,omitempty"`
+	Precaching        PrecachingStatus   `json:"precaching,omitempty"`
 }
 
 //+kubebuilder:object:root=true
