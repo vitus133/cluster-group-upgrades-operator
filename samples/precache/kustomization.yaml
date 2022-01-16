@@ -1,5 +1,5 @@
-resources:
-- cgu-crd.yaml
+bases:
+- crd.yaml
 - catsrc-policy.yaml
 - cgu-precache.yaml
 - cguo-csv-sample.yaml
