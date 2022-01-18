@@ -1,10 +1,5 @@
 # Build the manager binary
-## Base image for general public:
-# FROM golang:1.16 as builder
-## or
-# FROM mirror.gcr.io/library/golang:1.16 as builder
-## Base image for Github CI:
-FROM openshift/rhel-8-golang-1.16-openshift-4.10 as builder
+FROM mirror.gcr.io/library/golang:1.17 as builder
 
 
 
