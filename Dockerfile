@@ -1,5 +1,11 @@
 # Build the manager binary
-FROM golang:1.16 as builder
+## Base image for general public:
+# FROM golang:1.16 as builder
+## or
+# FROM mirror.gcr.io/library/golang:1.16 as builder
+## Base image for Github CI:
+FROM openshift/origin-release:golang-1.16 as builder
+
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
