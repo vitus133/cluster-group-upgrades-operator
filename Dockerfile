@@ -4,7 +4,8 @@
 ## or
 # FROM mirror.gcr.io/library/golang:1.16 as builder
 ## Base image for Github CI:
-FROM openshift/origin-release:golang-1.16 as builder
+FROM openshift/rhel-8-golang-1.16-openshift-4.10 as builder
+
 
 
 WORKDIR /workspace
