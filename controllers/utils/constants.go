@@ -30,7 +30,7 @@ const (
 	CsvNamePrefix              = "cluster-group-upgrades-operator"
 	KubeconfigSecretSuffix     = "admin-kubeconfig"
 	OperatorConfigOverrides    = "cluster-group-upgrade-overrides"
-	PrecacheJobNamespace       = "pre-cache"
+	PrecacheJobNamespace       = "openshift-talo-pre-cache"
 	PrecacheJobName            = "pre-cache"
 	PrecacheServiceAccountName = "pre-cache-agent"
 	PrecacheSpecCmName         = "pre-cache-spec"

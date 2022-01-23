@@ -279,7 +279,7 @@ spec:
       apiVersion: v1
       kind: Namespace
       metadata:
-        name: pre-cache
+        name: openshift-talo-pre-cache
         annotations:
           workload.openshift.io/allowed: management
 `
@@ -302,7 +302,7 @@ spec:
       kind: ConfigMap
       metadata:
         name: pre-cache-spec
-        namespace: pre-cache
+        namespace: openshift-talo-pre-cache
 `
 
 const mngClusterActCreateServiceAcct string = `
@@ -317,7 +317,7 @@ spec:
       kind: ServiceAccount
       metadata:
         name: pre-cache-agent
-        namespace: pre-cache
+        namespace: openshift-talo-pre-cache
 `
 
 const mngClusterActCreateClusterRoleBinding string = `
@@ -338,8 +338,8 @@ spec:
         name: cluster-admin
       subjects:
         - kind: ServiceAccount
-          name: pre-cache-agent
-          namespace: pre-cache
+          name: openshift-talo-pre-cache-agent
+          namespace: openshift-talo-pre-cache
 `
 
 const mngClusterActCreateJob string = `
@@ -349,13 +349,13 @@ spec:
   actionType: Create
   kube:
     resource: job
-    namespace: pre-cache
+    namespace: openshift-talo-pre-cache
     template:
       apiVersion: batch/v1
       kind: Job
       metadata:
         name: pre-cache
-        namespace: pre-cache
+        namespace: openshift-talo-pre-cache
       spec:
         activeDeadlineSeconds: {{ .PrecachingJobTimeout }}
         backoffLimit: 0
@@ -411,7 +411,7 @@ spec:
   scope:
     resource: jobs
     name: pre-cache
-    namespace: pre-cache
+    namespace: openshift-talo-pre-cache
     updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
@@ -422,7 +422,7 @@ spec:
   scope:
     resource: configmap
     name: pre-cache-spec
-    namespace: pre-cache
+    namespace: openshift-talo-pre-cache
     updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
@@ -433,7 +433,7 @@ spec:
   scope:
     resource: serviceaccounts
     name: pre-cache-agent
-    namespace: pre-cache
+    namespace: openshift-talo-pre-cache
     updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
@@ -453,7 +453,7 @@ const mngClusterViewNamespace string = `
 spec:
   scope:
     resource: namespaces
-    name: pre-cache
+    name: openshift-talo-pre-cache
     updateIntervalSeconds: {{ .ViewUpdateIntervalSec }}
 `
 
@@ -464,5 +464,5 @@ spec:
   actionType: Delete
   kube:
     resource: namespace
-    name: pre-cache
+    name: openshift-talo-pre-cache
 `
