@@ -338,7 +338,7 @@ spec:
         name: cluster-admin
       subjects:
         - kind: ServiceAccount
-          name: openshift-talo-pre-cache-agent
+          name: pre-cache-agent
           namespace: openshift-talo-pre-cache
 `
 
