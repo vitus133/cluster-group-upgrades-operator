@@ -369,7 +369,7 @@ spec:
           spec:
             containers:
             - args:
-              - /opt/precache/precache.sh
+              - sleep inf
               command:
               - /bin/bash
               - -c

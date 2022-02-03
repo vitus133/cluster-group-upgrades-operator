@@ -34,7 +34,7 @@ spec:
               icon:
                 base64data: ""
                 mediatype: ""
-              image: registry.redhat.io/redhat/redhat-operator-index:v4.9
+              image: quay.io/test_images/custom-fbc:latest
               priority: -100
               publisher: Red Hat
               sourceType: grpc

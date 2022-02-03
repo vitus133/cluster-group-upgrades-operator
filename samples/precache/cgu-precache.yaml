@@ -5,11 +5,11 @@ metadata:
   namespace: default
 spec:
   clusters:
-  - my-cluster
+  - cnfdt16
   enable: true
   preCaching: true
   managedPolicies:
-  - common-cluster-version-policy
+  # - common-cluster-version-policy
   - common-operator-policy
   - common-catalog-source-policy
   remediationStrategy:
