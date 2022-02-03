@@ -1,10 +1,7 @@
 import sys
-import os
-import yaml
+import json
 import argparse
 import traceback
-from difflib import SequenceMatcher
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -27,54 +24,46 @@ def parse_args():
     return args
 
 
-def extract_bundle_names(args):
+def extract_images(args, objects):
     bundles = []
     with open(args.operators_spec_file.name, 'r') as p:
         records = [i.split(":") for i in p.read().splitlines() if len(i) > 0]
+    packages = []
+    channels = {}
     for item in records:
-        pkg_name = item[0].strip()
-        path = os.path.join(args.index_download_path, pkg_name, 'package.yaml')
-        with open(path, 'r') as f:
-            package = yaml.safe_load(f)
-            csv_name = [p.get("currentCSV") for p in
-                        package.get("channels")
-                        if p.get("name") ==
-                        item[1].strip()][0].strip(f"{pkg_name}.")
-        with os.scandir(os.path.join(args.index_download_path, pkg_name)) as it:
-            bundle_dirs = [entry.name for entry in it if entry.is_dir()]
-        bundle_dir = sorted(
-            bundle_dirs, key=lambda dir_name: SequenceMatcher(
-                None, csv_name, dir_name).ratio())[-1]
-        bundles.append(os.path.join(
-            args.index_download_path, pkg_name, bundle_dir))
-    return bundles
-
-
-def extract_images(bundles):
+        channels[item[0].strip()] = item[1].strip()
+        packages.append(item[0].strip())
+    for item in objects:
+        if item.get("schema") == "olm.channel":
+            if item.get("package") in packages and item.get("name") == channels[item.get("package")]:
+                latest = item.get("entries")[-1].get("name")
+                bundles.append(latest)
     images = []
-    try:
-        for path in bundles:
-            with os.scandir(path) as it:
-                csv_file = [entry for entry in it if entry.name.endswith(
-                    '.clusterserviceversion.yaml')][-1]
-            with open(csv_file.path, 'r') as f:
-                csv = yaml.safe_load(f)
-            images.extend([im.get('image') for im in csv.get(
-                'spec').get('relatedImages')])
-    except Exception as e:
-        print(e, csv_file)
-        traceback.print_exc(file=sys.stdout)
-        raise Exception("Failed to extract related images", e)
-    finally:
-        return images
+    for item in objects:
+        if item.get("schema") == "olm.bundle":
+            if item.get("name") in bundles and item.get("package") in packages:
+                images.extend([elem.get("image") for elem in item.get("relatedImages")])
+    return images
+
+def load_rendered_index():
+    with open("/tmp/index.json", "r") as f:
+        data = f.read().lstrip()
+    # Rendered index is not a valid json, but a list
+    # of concatenated json blocks. Hence the raw decoder and the loop
+    decoder = json.JSONDecoder()
+    objects = []
+    while data:
+        obj, index = decoder.raw_decode(data)
+        objects.append(obj)
+        data = data[index:].lstrip()
+    return objects
 
 
 if __name__ == "__main__":
     try:
         args = parse_args()
-
-        bundles = extract_bundle_names(args)
-        images = extract_images(bundles)
+        data = load_rendered_index()
+        images = extract_images(args, data)
         with open(args.img_list_file.name, args.img_list_file.mode) as f:
             f.write('\n'.join(images))
             f.write('\n')
