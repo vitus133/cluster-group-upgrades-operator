@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   clusters:
-  - my-cluster
+  - cnfdt16
   enable: true
   preCaching: true
   managedPolicies:
