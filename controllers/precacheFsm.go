@@ -59,6 +59,20 @@ const (
 func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
+	specCondition := meta.FindStatusCondition(clusterGroupUpgrade.Status.Conditions, "PrecacheSpecValid")
+	if specCondition == nil || specCondition.Status == metav1.ConditionFalse {
+		allManagedPoliciesExist, _, managedPoliciesPresent, err := r.doManagedPoliciesExist(ctx, clusterGroupUpgrade)
+		if err != nil {
+			return err
+		}
+
+		if allManagedPoliciesExist {
+			err = r.reconcileResources(ctx, clusterGroupUpgrade, managedPoliciesPresent)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	r.setPrecachingRequired(clusterGroupUpgrade)
 	var clusters []string
 	var err error
