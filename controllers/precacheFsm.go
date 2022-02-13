@@ -67,12 +67,7 @@ func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 		}
 		r.Log.Info("[precachingFsm]", "PrecacheSpecValid", "No",
 			"allManagedPoliciesExist", allManagedPoliciesExist, "managedPoliciesPresent", managedPoliciesPresent)
-		if allManagedPoliciesExist {
-			err = r.reconcileResources(ctx, clusterGroupUpgrade, managedPoliciesPresent)
-			if err != nil {
-				return err
-			}
-		}
+		return nil
 	}
 	r.setPrecachingRequired(clusterGroupUpgrade)
 	var clusters []string
