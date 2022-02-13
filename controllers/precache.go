@@ -416,15 +416,13 @@ func (r *ClusterGroupUpgradeReconciler) deployDependencies(
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
 	cluster string) (bool, error) {
 
-	spec, err := r.getPrecacheSoftwareSpec(ctx, clusterGroupUpgrade, cluster)
-	if err != nil {
-		return false, err
-	}
+	spec := r.getPrecacheSpecTemplateData(ctx, clusterGroupUpgrade)
+	spec.Cluster = cluster
 	msg := fmt.Sprintf("%v", spec)
-	r.Log.Info("[deployDependencies]", "getPrecacheSoftwareSpec",
+	r.Log.Info("[deployDependencies]", "getPrecacheSpecTemplateData",
 		cluster, "status", "success", "content", msg)
 
-	err = r.createResourcesFromTemplates(ctx, spec, precacheDependenciesCreateTemplates)
+	err := r.createResourcesFromTemplates(ctx, spec, precacheDependenciesCreateTemplates)
 	if err != nil {
 		return false, err
 	}
@@ -522,53 +520,23 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheJobTemplateData(
 	return rv, nil
 }
 
-// getPrecacheSoftwareSpec: Get precaching payload spec for a cluster. It consists of
-//    	several parts that together compose the precaching workload API:
-//      1. platform.image as a SHA-256 container image digest (e.g. "quay.io/openshift-release-dev/ocp-release:<sha256-digest>").
-//      2. operators.indexes - a list of pull specs for OLM index images
-//      3. operators.packagesAndChannels - Operator packages and channels
+// getPrecacheSpecTemplateData: Converts precaching payload spec to template data
 // returns: templateData (softwareSpec)
 //          error
-func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
+func (r *ClusterGroupUpgradeReconciler) getPrecacheSpecTemplateData(
 	ctx context.Context,
-	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, clusterName string) (
-	*templateData, error) {
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) *templateData {
 
 	rv := new(templateData)
-	rv.Cluster = clusterName
-
 	spec := clusterGroupUpgrade.Status.Precaching.Spec
-	r.Log.Info("[getPrecacheSoftwareSpec]", "PrecacheSoftwareSpec:", spec)
-
-	overrides, err := r.getOverrides(ctx, clusterGroupUpgrade)
-	if err != nil {
-		return rv, err
-	}
-
-	platformImage := overrides["platform.image"]
-	operatorsIndexes := strings.Split(overrides["operators.indexes"], "\n")
-	operatorsPackagesAndChannels := strings.Split(overrides["operators.packagesAndChannels"], "\n")
-	if platformImage == "" {
-		platformImage = spec.PlatformImage
-	}
-	rv.PlatformImage = platformImage
-
-	if overrides["operators.indexes"] == "" {
-		operatorsIndexes = spec.OperatorsIndexes
-	}
-	rv.Operators.Indexes = operatorsIndexes
-
-	if overrides["operators.packagesAndChannels"] == "" {
-		operatorsPackagesAndChannels = spec.OperatorsPackagesAndChannels
-	}
-	rv.Operators.PackagesAndChannels = operatorsPackagesAndChannels
-
-	if err != nil {
-		return rv, err
-	}
-	return rv, err
+	rv.PlatformImage = spec.PlatformImage
+	rv.Operators.Indexes = spec.OperatorsIndexes
+	rv.Operators.PackagesAndChannels = spec.OperatorsPackagesAndChannels
+	return rv
 }
 
+// includeSoftwareSpecOverrides includes software spec overrides if present
+// returns: *ranv1alpha1.PrecachingSpec, error
 func (r *ClusterGroupUpgradeReconciler) includeSoftwareSpecOverrides(
 	ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, spec *ranv1alpha1.PrecachingSpec) (
