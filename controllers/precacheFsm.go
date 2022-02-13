@@ -59,17 +59,49 @@ const (
 func (r *ClusterGroupUpgradeReconciler) precachingFsm(ctx context.Context,
 	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) error {
 
+	r.setPrecachingRequired(clusterGroupUpgrade)
 	specCondition := meta.FindStatusCondition(clusterGroupUpgrade.Status.Conditions, "PrecacheSpecValid")
 	if specCondition == nil || specCondition.Status == metav1.ConditionFalse {
 		allManagedPoliciesExist, _, managedPoliciesPresent, err := r.doManagedPoliciesExist(ctx, clusterGroupUpgrade)
 		if err != nil {
 			return err
 		}
-		r.Log.Info("[precachingFsm]", "PrecacheSpecValid", "No",
-			"allManagedPoliciesExist", allManagedPoliciesExist, "managedPoliciesPresent", managedPoliciesPresent)
-		return nil
+		if !allManagedPoliciesExist {
+			meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+				Type:    "PrecacheSpecValid",
+				Status:  metav1.ConditionFalse,
+				Reason:  "NotAllManagedPoliciesExist",
+				Message: "Not all managed policies specified in the CGU are present on the hub cluster"})
+			return nil
+		}
+
+		spec, err := r.extractPrecachingSpecFromPolicies(ctx, clusterGroupUpgrade, managedPoliciesPresent)
+		if err != nil {
+			return err
+		}
+		r.Log.Info("[precachingFsm]", "PrecacheSpecFromPolicies", spec)
+		spec, err = r.includeSoftwareSpecOverrides(ctx, clusterGroupUpgrade, &spec)
+		if err != nil {
+			return err
+		}
+		ok, msg := r.checkPreCacheSpecConsistency(spec)
+		if !ok {
+			meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+				Type:    "PrecacheSpecValid",
+				Status:  metav1.ConditionFalse,
+				Reason:  "PrecacheSpecIsIncomplete",
+				Message: msg})
+			return nil
+		}
+		meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
+			Type:    "PrecacheSpecValid",
+			Status:  metav1.ConditionTrue,
+			Reason:  "PrecacheSpecIsWellFormed",
+			Message: "Pre-caching spec is valid and consistent"})
+
+		clusterGroupUpgrade.Status.Precaching.Spec = spec
 	}
-	r.setPrecachingRequired(clusterGroupUpgrade)
+
 	var clusters []string
 	var err error
 	if len(clusterGroupUpgrade.Status.Precaching.Clusters) != 0 {

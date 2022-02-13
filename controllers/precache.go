@@ -274,45 +274,20 @@ func (r *ClusterGroupUpgradeReconciler) checkDependencies(
 	return true, nil
 }
 
-// getPrecachingSpec gets the software spec to be pre-cached
-// 		Extract from policies or copy from the status, if already stored.
+// extractPrecachingSpecFromPolicies extracts the software spec to be pre-cached
+// 		from policies.
 //		There are three object types to look at in the policies:
 //      - ClusterVersion: release image must be specified to be pre-cached
 //      - Subscription: provides the list of operator packages and channels
 //      - CatalogSource: must be explicitly configured to be precached.
 //        All the clusters in the CGU must have same catalog source(s)
 // returns: precachingSpec, error
+func (r *ClusterGroupUpgradeReconciler) extractPrecachingSpecFromPolicies(
+	ctx context.Context, clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade,
+	policies []*unstructured.Unstructured) (ranv1alpha1.PrecachingSpec, error) {
 
-func (r *ClusterGroupUpgradeReconciler) getPrecachingSpec(
-	ctx context.Context,
-	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade) (ranv1alpha1.PrecachingSpec, error) {
-
-	if clusterGroupUpgrade.Status.Precaching.Spec.PlatformImage != "" ||
-		len(clusterGroupUpgrade.Status.Precaching.Spec.OperatorsIndexes) > 0 {
-
-		r.Log.Info("[getPrecachingSpec]", "Precache spec source", "status")
-		return clusterGroupUpgrade.Status.Precaching.Spec, nil
-	}
 	var spec ranv1alpha1.PrecachingSpec
-	policiesList, err := r.getPoliciesForNamespace(ctx, clusterGroupUpgrade.GetNamespace())
-	if err != nil {
-		return spec, err
-	}
-
-	for _, policy := range policiesList.Items {
-		// Filter by explicit list in CGU
-		if !func(a string, list []string) bool {
-			for _, b := range list {
-				if b == a {
-					return true
-				}
-			}
-			return false
-		}(policy.GetName(), clusterGroupUpgrade.Spec.ManagedPolicies) {
-			r.Log.Info("[getPrecachingSpec]", "Skip policy",
-				policy.GetName(), "reason", "Not in CGU")
-			continue
-		}
+	for _, policy := range policies {
 		objects, err := r.stripPolicy(policy.Object)
 		if err != nil {
 			return spec, err
@@ -334,24 +309,23 @@ func (r *ClusterGroupUpgradeReconciler) getPrecachingSpec(
 					return *new(ranv1alpha1.PrecachingSpec), nil
 				}
 				spec.PlatformImage = fmt.Sprintf("%s", image)
-				r.Log.Info("[getPrecachingSpec]", "ClusterVersion image", image)
+				r.Log.Info("[extractPrecachingSpecFromPolicies]", "ClusterVersion image", image)
 			case "Subscription":
 				packChan := fmt.Sprintf("%s:%s", object["spec"].(map[string]interface{})["name"],
 					object["spec"].(map[string]interface{})["channel"])
 				spec.OperatorsPackagesAndChannels = append(spec.OperatorsPackagesAndChannels, packChan)
-				r.Log.Info("[getPrecachingSpec]", "Operator package:channel", packChan)
+				r.Log.Info("[extractPrecachingSpecFromPolicies]", "Operator package:channel", packChan)
 				continue
 			case "CatalogSource":
 				index := fmt.Sprintf("%s", object["spec"].(map[string]interface{})["image"])
 				spec.OperatorsIndexes = append(spec.OperatorsIndexes, index)
-				r.Log.Info("[getPrecachingSpec]", "CatalogSource", index)
+				r.Log.Info("[extractPrecachingSpecFromPolicies]", "CatalogSource", index)
 				continue
 			default:
 				continue
 			}
 		}
 	}
-	clusterGroupUpgrade.Status.Precaching.Spec = spec
 	return spec, nil
 }
 
@@ -449,21 +423,6 @@ func (r *ClusterGroupUpgradeReconciler) deployDependencies(
 	msg := fmt.Sprintf("%v", spec)
 	r.Log.Info("[deployDependencies]", "getPrecacheSoftwareSpec",
 		cluster, "status", "success", "content", msg)
-
-	ok, msg := r.checkPreCacheSpecConsistency(*spec)
-	if !ok {
-		meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-			Type:    "PrecacheSpecValid",
-			Status:  metav1.ConditionFalse,
-			Reason:  "PrecacheSpecIsIncomplete",
-			Message: msg})
-		return false, nil
-	}
-	meta.SetStatusCondition(&clusterGroupUpgrade.Status.Conditions, metav1.Condition{
-		Type:    "PrecacheSpecValid",
-		Status:  metav1.ConditionTrue,
-		Reason:  "PrecacheSpecIsWellFormed",
-		Message: "Pre-caching spec is valid and consistent"})
 
 	err = r.createResourcesFromTemplates(ctx, spec, precacheDependenciesCreateTemplates)
 	if err != nil {
@@ -578,10 +537,7 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	rv := new(templateData)
 	rv.Cluster = clusterName
 
-	spec, err := r.getPrecachingSpec(ctx, clusterGroupUpgrade)
-	if err != nil {
-		return rv, err
-	}
+	spec := clusterGroupUpgrade.Status.Precaching.Spec
 	r.Log.Info("[getPrecacheSoftwareSpec]", "PrecacheSoftwareSpec:", spec)
 
 	overrides, err := r.getOverrides(ctx, clusterGroupUpgrade)
@@ -613,19 +569,56 @@ func (r *ClusterGroupUpgradeReconciler) getPrecacheSoftwareSpec(
 	return rv, err
 }
 
+func (r *ClusterGroupUpgradeReconciler) includeSoftwareSpecOverrides(
+	ctx context.Context,
+	clusterGroupUpgrade *ranv1alpha1.ClusterGroupUpgrade, spec *ranv1alpha1.PrecachingSpec) (
+	ranv1alpha1.PrecachingSpec, error) {
+
+	rv := new(ranv1alpha1.PrecachingSpec)
+
+	overrides, err := r.getOverrides(ctx, clusterGroupUpgrade)
+	if err != nil {
+		return *rv, err
+	}
+
+	platformImage := overrides["platform.image"]
+	operatorsIndexes := strings.Split(overrides["operators.indexes"], "\n")
+	operatorsPackagesAndChannels := strings.Split(overrides["operators.packagesAndChannels"], "\n")
+	if platformImage == "" {
+		platformImage = spec.PlatformImage
+	}
+	rv.PlatformImage = platformImage
+
+	if overrides["operators.indexes"] == "" {
+		operatorsIndexes = spec.OperatorsIndexes
+	}
+
+	rv.OperatorsIndexes = operatorsIndexes
+
+	if overrides["operators.packagesAndChannels"] == "" {
+		operatorsPackagesAndChannels = spec.OperatorsPackagesAndChannels
+	}
+	rv.OperatorsPackagesAndChannels = operatorsPackagesAndChannels
+
+	if err != nil {
+		return *rv, err
+	}
+	return *rv, err
+}
+
 // checkPreCacheSpecConsistency checks software spec can be precached
 // returns: consistent (bool), message (string)
 func (r *ClusterGroupUpgradeReconciler) checkPreCacheSpecConsistency(
-	spec templateData) (consistent bool, message string) {
+	spec ranv1alpha1.PrecachingSpec) (consistent bool, message string) {
 
 	var operatorsRequested, platformRequested bool = true, true
-	if len(spec.Operators.Indexes) == 0 {
+	if len(spec.OperatorsIndexes) == 0 {
 		operatorsRequested = false
 	}
 	if spec.PlatformImage == "" {
 		platformRequested = false
 	}
-	if operatorsRequested && len(spec.Operators.PackagesAndChannels) == 0 {
+	if operatorsRequested && len(spec.OperatorsPackagesAndChannels) == 0 {
 		return false, "inconsistent precaching configuration: olm index provided, but no packages"
 	}
 	if !operatorsRequested && !platformRequested {
