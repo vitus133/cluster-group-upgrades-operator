@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   clusters:
-  - my-cluster
+  - sno-vg
   enable: true
   preCaching: true
   managedPolicies:

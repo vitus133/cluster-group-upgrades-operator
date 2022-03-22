@@ -8,7 +8,7 @@ metadata:
   labels:
     policy.open-cluster-management.io/root-policy: ""
   name: default.common-operator-policy
-  namespace: my-cluster
+  namespace: sno-vg
 spec:
   disabled: false
   policy-templates:

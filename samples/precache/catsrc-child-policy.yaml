@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: policies
     policy.open-cluster-management.io/root-policy: ""
   name: default.common-catalog-source-policy
-  namespace: my-cluster
+  namespace: sno-vg
 spec:
   disabled: false
   policy-templates:
