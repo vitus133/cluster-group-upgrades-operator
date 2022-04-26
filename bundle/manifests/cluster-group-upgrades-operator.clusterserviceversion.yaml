@@ -88,6 +88,11 @@ spec:
         path: remediationStrategy
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
+      - description: This field restarts failed or otherwise non-progressing cgu
+        displayName: restart
+        path: restart
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:bool
       statusDescriptors:
       - displayName: Backup
         path: backup

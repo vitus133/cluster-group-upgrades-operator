@@ -112,6 +112,17 @@ func (r *ClusterGroupUpgradeReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
+	if clusterGroupUpgrade.Spec.Restart {
+		// TODO: reinitialize the CGU status here
+		// TODO: do whatever else is needed to restart
+		r.Log.Info("cgu restart requested - toggling it back ")
+		clusterGroupUpgrade.Spec.Restart = false
+		err = r.Update(ctx, clusterGroupUpgrade)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 	if clusterGroupUpgrade.Status.Backup != nil {
 		for _, v := range clusterGroupUpgrade.Status.Backup.Status {
 			//nolint

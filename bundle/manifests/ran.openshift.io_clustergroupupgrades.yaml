@@ -155,6 +155,11 @@ spec:
                 required:
                 - maxConcurrency
                 type: object
+              restart:
+                default: false
+                description: This field restarts failed or otherwise non-progressing
+                  cgu
+                type: boolean
             required:
             - remediationStrategy
             type: object
