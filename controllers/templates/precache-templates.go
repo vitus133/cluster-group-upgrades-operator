@@ -56,6 +56,9 @@ spec:
         operators.packagesAndChannels: |{{ range .Operators.PackagesAndChannels }} 
           {{ . }} {{ end }}
         platform.image: {{ .PlatformImage }}
+        customer.images: |{{ range .Operators.PackagesAndChannels }} 
+        {{ . }} {{ end }}
+        persistent.storage: {{ .PersistentStorage }}
       kind: ConfigMap
       metadata:
         name: pre-cache-spec
